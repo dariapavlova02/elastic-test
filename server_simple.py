@@ -171,20 +171,56 @@ async def index_document(request: IndexRequest):
 
 @app.post("/search", response_model=SearchResponse)
 async def search_documents(query: SearchQuery):
-    """Search documents."""
+    """Search documents with AI normalization."""
     try:
         if not es_client:
             raise HTTPException(status_code=500, detail="Elasticsearch client not initialized")
         
-        # Simple text search query
-        search_query = {
-            "query": {
-                "multi_match": {
-                    "query": query.query,
-                    "fields": ["*"]
+        # Normalize query with AI if available
+        normalized_query = query.query
+        query_vector = None
+        
+        if ai_processor:
+            try:
+                # Process query with AI for normalization and vectorization
+                ai_result = await ai_processor.process_text(
+                    text=query.query,
+                    generate_embeddings=True,
+                    generate_variants=False
+                )
+                
+                if ai_result["success"]:
+                    normalized_query = ai_result.get("normalized_text", query.query)
+                    query_vector = ai_result.get("embeddings")
+                    logger.info(f"Query normalized: '{query.query}' -> '{normalized_query}'")
+                    if query_vector:
+                        logger.info(f"Generated vector of length: {len(query_vector)}")
+                else:
+                    logger.warning(f"AI normalization failed: {ai_result.get('error', 'Unknown error')}")
+            except Exception as e:
+                logger.warning(f"AI processing failed: {e}")
+        
+        # Build search query - use vector search if available, otherwise text search
+        if query_vector and query.index == "sanctions":
+            # Vector search for sanctions
+            search_query = {
+                "knn": {
+                    "field": "vector",
+                    "query_vector": query_vector,
+                    "k": query.size,
+                    "num_candidates": query.size * 10
                 }
             }
-        }
+        else:
+            # Text search
+            search_query = {
+                "query": {
+                    "multi_match": {
+                        "query": normalized_query,
+                        "fields": ["name", "name_en", "name_ru", "entity_type"]
+                    }
+                }
+            }
         
         response = es_client.search(
             index_name=query.index,
@@ -201,7 +237,7 @@ async def search_documents(query: SearchQuery):
             })
         
         return SearchResponse(
-            query=query.query,
+            query=normalized_query,  # Return normalized query
             index=query.index,
             results=results,
             total=response["hits"]["total"]["value"],
