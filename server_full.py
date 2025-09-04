@@ -139,8 +139,10 @@ async def startup_event():
         except Exception as e:
             logger.warning(f"AI services unavailable: {e}")
             logger.info("API will work with limited functionality (no AI processing)")
-            ai_processor = None
-            data_normalizer = None
+            from src.ai_integration.ai_stub import AIProcessor as AIProcessorStub, DataNormalizer as DataNormalizerStub
+            ai_processor = AIProcessorStub()
+            data_normalizer = DataNormalizerStub(ai_processor)
+            logger.info("✅ Stub AI services initialized successfully")
         
         logger.info("✅ All available services initialized successfully")
         
