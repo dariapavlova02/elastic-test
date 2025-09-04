@@ -3,11 +3,11 @@ version: '3.8'
 services:
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
-    container_name: elasticsearch-server
+    container_name: elasticsearch-minimal
     environment:
       - discovery.type=single-node
       - xpack.security.enabled=false
-      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
       - bootstrap.memory_lock=true
     ports:
       - "9200:9200"
@@ -15,7 +15,7 @@ services:
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
     networks:
-      - payment-server-network
+      - payment-minimal-network
     ulimits:
       memlock:
         soft: -1
@@ -30,20 +30,18 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.server.simple
-    container_name: server-api-server
+    container_name: server-api-minimal
     environment:
       - ELASTICSEARCH_URL=http://elasticsearch:9200
       - LOG_LEVEL=INFO
       - APP_ENV=production
     ports:
       - "8000:8000"
-    # volumes:
-      # - ./logs:/app/logs
     depends_on:
       elasticsearch:
         condition: service_healthy
     networks:
-      - payment-server-network
+      - payment-minimal-network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -51,25 +49,10 @@ services:
       timeout: 10s
       retries: 3
 
-  nginx:
-    image: nginx:alpine
-    container_name: nginx-server
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/server-nginx.conf:/etc/nginx/nginx.conf:ro
-      # - ./nginx/ssl:/etc/nginx/ssl:ro
-    depends_on:
-      - server_api
-    networks:
-      - payment-server-network
-    restart: unless-stopped
-
 volumes:
   elasticsearch_data:
     driver: local
 
 networks:
-  payment-server-network:
+  payment-minimal-network:
     driver: bridge
