@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 import uvicorn
 
 from src.es_client import ElasticsearchClient
+from src.ai_integration import AIProcessor, DataNormalizer
 from config.config import config
 
 # Configure logging
@@ -49,6 +50,8 @@ app.add_middleware(
 
 # Global variables
 es_client: Optional[ElasticsearchClient] = None
+ai_processor: Optional[AIProcessor] = None
+data_normalizer: Optional[DataNormalizer] = None
 
 class SearchQuery(BaseModel):
     """Search query model."""
@@ -76,7 +79,7 @@ class IndexRequest(BaseModel):
 @app.on_event("startup")
 async def startup_event():
     """Initialize server services."""
-    global es_client
+    global es_client, ai_processor, data_normalizer
     
     logger.info("Initializing server services...")
     
@@ -104,6 +107,10 @@ async def startup_event():
         from src.es_client.client import ElasticsearchClient
         es_client = ElasticsearchClient.__new__(ElasticsearchClient)
         es_client.client = es_client_direct
+        
+        # Initialize AI services
+        ai_processor = AIProcessor()
+        data_normalizer = DataNormalizer(ai_processor)
         
         logger.info("✅ Server services initialized successfully")
     except Exception as e:

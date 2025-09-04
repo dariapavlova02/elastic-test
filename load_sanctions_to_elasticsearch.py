@@ -17,7 +17,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 from src.es_client import ElasticsearchClient, IndexManager
 from src.ai_integration import AIProcessor, DataNormalizer
-from src.sanctions import SanctionsLoader
+from src.sanctions.sanctions_loader import SanctionsLoader
 from config.config import config
 
 # Configure logging
@@ -27,16 +27,21 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class SanctionsLoader:
+class SanctionsDataLoader:
     """Load sanctions data into Elasticsearch."""
     
-    def __init__(self, elasticsearch_url: str = "http://localhost:9200"):
+    def __init__(self, elasticsearch_url: str = "http://localhost:9200", data_path: str = "ai-service/src/ai_service/data"):
         """Initialize the loader."""
-        self.es_client = ElasticsearchClient(elasticsearch_url)
+        # Set environment variable for ElasticsearchClient
+        import os
+        os.environ["ELASTICSEARCH_HOST"] = elasticsearch_url.split("://")[1].split(":")[0]
+        os.environ["ELASTICSEARCH_PORT"] = elasticsearch_url.split(":")[-1]
+        
+        self.es_client = ElasticsearchClient()
         self.index_manager = IndexManager(self.es_client)
         self.ai_processor = AIProcessor()
         self.data_normalizer = DataNormalizer(self.ai_processor)
-        self.sanctions_loader = SanctionsLoader(ai_processor=self.ai_processor)
+        self.sanctions_loader = SanctionsLoader(data_path=data_path, ai_processor=self.ai_processor)
         
     def create_indices(self):
         """Create Elasticsearch indices."""
@@ -180,7 +185,7 @@ async def main():
     print()
     
     # Initialize loader
-    loader = SanctionsLoader(args.elasticsearch_url)
+    loader = SanctionsDataLoader(args.elasticsearch_url, args.data_path)
     
     try:
         # Create indices if requested
