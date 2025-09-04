@@ -26,7 +26,8 @@ services:
       dockerfile: Dockerfile.server.simple
     container_name: server-api-basic
     environment:
-      - ELASTICSEARCH_URL=http://elasticsearch:9200
+      - ELASTICSEARCH_HOST=elasticsearch
+      - ELASTICSEARCH_PORT=9200
       - LOG_LEVEL=INFO
       - APP_ENV=production
     ports:
