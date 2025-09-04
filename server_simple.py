@@ -67,8 +67,11 @@ class SearchResponse(BaseModel):
 class IndexRequest(BaseModel):
     """Index document request."""
     index: str = Field(..., description="Index name")
-    document: Dict[str, Any] = Field(..., description="Document to index")
+    document: dict = Field(..., description="Document to index")
     doc_id: Optional[str] = Field(None, description="Optional document ID")
+    
+    class Config:
+        arbitrary_types_allowed = True
 
 @app.on_event("startup")
 async def startup_event():
@@ -134,16 +137,19 @@ async def health_check():
         logger.error(f"Health check failed: {e}")
         return {"status": "unhealthy", "error": str(e)}
 
-@app.post("/index", response_model=dict)
+@app.post("/index")
 async def index_document(request: IndexRequest):
     """Index a document."""
     try:
         if not es_client:
             raise HTTPException(status_code=500, detail="Elasticsearch client not initialized")
         
+        # Convert document to dict if it's not already
+        document = dict(request.document) if hasattr(request.document, '__dict__') else request.document
+        
         response = es_client.index_document(
             index_name=request.index,
-            document=request.document,
+            document=document,
             doc_id=request.doc_id
         )
         
