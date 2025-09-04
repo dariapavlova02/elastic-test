@@ -166,7 +166,7 @@ class LanguageDetectionService:
                 self._update_stats(confidence, 'langdetect')
                 return result
                 
-        except (ImportError, LangDetectException) as e:
+        except LangDetectException as e:
             self.logger.debug(f"LangDetect failed: {e}")
             # Don't return result with method 'langdetect' on error
         
