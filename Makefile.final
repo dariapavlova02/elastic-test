@@ -1,0 +1,85 @@
+.PHONY: help build up down restart logs clean test health deploy
+
+# Default target
+help: ## Show this help message
+	@echo "Payment Vector Testing - Final Architecture"
+	@echo "==========================================="
+	@echo ""
+	@echo "Architecture:"
+	@echo "  Local: Load sanctions → Send queries to server"
+	@echo "  Server: AI service + Elasticsearch + Search API"
+	@echo "  Flow: Query → Normalize → Vectorize → Search → Results"
+	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+
+# Server commands (run on server)
+server-up: ## Start server (AI + Elasticsearch + Search API)
+	docker-compose -f docker-compose.server.yml up -d
+
+server-down: ## Stop server
+	docker-compose -f docker-compose.server.yml down
+
+server-logs: ## Show server logs
+	docker-compose -f docker-compose.server.yml logs -f
+
+server-build: ## Build server image
+	docker-compose -f docker-compose.server.yml build
+
+server-restart: ## Restart server
+	docker-compose -f docker-compose.server.yml down && docker-compose -f docker-compose.server.yml up -d
+
+# Local commands (run locally)
+load-sanctions: ## Load sanctions data to Elasticsearch (run locally)
+	python load_sanctions_to_elasticsearch.py --elasticsearch-url http://your-server:9200 --create-indices
+
+test-search: ## Test search with client (run locally)
+	python final_search_client.py --server-url http://your-server:8000 --query "Петро Порошенко"
+
+test-multiple: ## Test multiple queries (run locally)
+	python final_search_client.py --server-url http://your-server:8000 --test-queries
+
+# Monitoring
+health: ## Check server health
+	curl -s http://your-server:8000/health | python -m json.tool
+
+status: ## Show server status
+	docker-compose -f docker-compose.server.yml ps
+
+stats: ## Get server statistics
+	curl -s http://your-server:8000/stats | python -m json.tool
+
+# Maintenance
+clean: ## Clean up server containers and volumes
+	docker-compose -f docker-compose.server.yml down -v
+	docker system prune -f
+
+clean-all: ## Clean up everything including images
+	docker-compose -f docker-compose.server.yml down -v --rmi all
+	docker system prune -af
+
+# Quick start
+start-server: server-build server-up ## Quick start server (build and run)
+	@echo "Server is starting..."
+	@echo "Wait for health check: make health"
+	@echo "Then load sanctions: make load-sanctions"
+
+# Development setup
+setup-dev: ## Setup development environment
+	python -m venv venv
+	. venv/bin/activate && pip install -r requirements.txt
+	cd ai-service && poetry install
+	cd .. && python -m spacy download en_core_web_sm
+	python -m spacy download ru_core_news_sm
+	python -m spacy download uk_core_news_sm
+
+# Example usage
+example: ## Show example usage
+	@echo "Example usage:"
+	@echo "1. On server: make start-server"
+	@echo "2. Locally: make load-sanctions"
+	@echo "3. Locally: make test-search"
+	@echo ""
+	@echo "Or manually:"
+	@echo "  curl -X POST http://your-server:8000/search \\"
+	@echo "    -H 'Content-Type: application/json' \\"
+	@echo "    -d '{\"query\": \"Петро Порошенко\", \"limit\": 10}'"

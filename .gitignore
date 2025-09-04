@@ -1,0 +1,93 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Data files
+data/
+*.csv
+*.json
+*.xlsx
+*.xls
+
+# Docker volumes
+docker-data/
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.staging
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Test files
+test_*.py
+*_test.py
+simple_test*.py
+standalone_test.py
+quick_test.py
+demo.py
+
+# Backup files
+*.bak
+*.backup
+
+# Node modules (if any)
+node_modules/
+npm-debug.log*
+
+# Elasticsearch data
+elasticsearch-data/
+
+# Nginx SSL
+nginx/ssl/

@@ -1,0 +1,32 @@
+# Elasticsearch and vector search
+elasticsearch>=8.11.0,<9.0.0
+opensearch-py>=2.0.0
+
+# Vector embeddings and ML
+sentence-transformers>=2.0.0
+numpy>=1.21.0
+scikit-learn>=1.0.0
+
+# Data processing
+pandas>=1.5.0
+pydantic>=2.0.0
+
+# HTTP and API
+requests>=2.28.0
+httpx>=0.24.0
+
+# Configuration and environment
+python-dotenv>=1.0.0
+pyyaml>=6.0.0
+
+# Logging and monitoring
+loguru>=0.7.0
+
+# Testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+
+# Development
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
