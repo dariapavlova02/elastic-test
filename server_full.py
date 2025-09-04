@@ -243,6 +243,7 @@ async def search(
                     generate_variants=True
                 )
                 
+                logger.info(f"AI result: {ai_result}")
                 if ai_result["success"]:
                     query_vector = ai_result["embeddings"]
                     normalized_query = ai_result.get("normalized_text", query.query)
@@ -252,6 +253,7 @@ async def search(
                     logger.info(f"Generated vector of length: {len(query_vector)}")
                 else:
                     logger.warning(f"AI processing failed: {ai_result.get('error', 'Unknown error')}")
+                    logger.warning(f"Full AI result: {ai_result}")
             except Exception as e:
                 logger.warning(f"AI processing error: {e}")
         
