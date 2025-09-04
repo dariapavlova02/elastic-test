@@ -28,7 +28,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile.simple
+      dockerfile: Dockerfile.fast
     container_name: api
     environment:
       - ELASTICSEARCH_HOST=elasticsearch
