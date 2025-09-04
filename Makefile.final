@@ -28,6 +28,22 @@ server-build: ## Build server image
 server-restart: ## Restart server
 	docker-compose -f docker-compose.server.yml down && docker-compose -f docker-compose.server.yml up -d
 
+# Simple server commands (without Nginx)
+simple-up: ## Start simple server (Elasticsearch + Search API only)
+	docker-compose -f docker-compose.simple.yml up -d
+
+simple-down: ## Stop simple server
+	docker-compose -f docker-compose.simple.yml down
+
+simple-logs: ## Show simple server logs
+	docker-compose -f docker-compose.simple.yml logs -f
+
+simple-build: ## Build simple server image
+	docker-compose -f docker-compose.simple.yml build
+
+simple-restart: ## Restart simple server
+	docker-compose -f docker-compose.simple.yml down && docker-compose -f docker-compose.simple.yml up -d
+
 # Local commands (run locally)
 load-sanctions: ## Load sanctions data to Elasticsearch (run locally)
 	python load_sanctions_to_elasticsearch.py --elasticsearch-url http://your-server:9200 --create-indices
