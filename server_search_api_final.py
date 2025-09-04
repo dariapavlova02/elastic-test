@@ -60,7 +60,7 @@ class SearchQuery(BaseModel):
     query: str
     limit: int = Field(default=10, ge=1, le=100)
     threshold: float = Field(default=0.7, ge=0.0, le=1.0)
-    index_type: str = Field(default="both", regex="^(payments|sanctions|both)$")
+    index_type: str = Field(default="both", pattern="^(payments|sanctions|both)$")
 
 class SearchResult(BaseModel):
     success: bool
