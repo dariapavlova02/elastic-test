@@ -15,7 +15,7 @@ from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer, SnowballStemmer
 from nltk.tokenize import word_tokenize
 import nltk
-from langdetect import detect, LangDetectException
+# Already imported above
 from unidecode import unidecode
 from pymorphy3 import MorphAnalyzer
 

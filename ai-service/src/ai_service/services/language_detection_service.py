@@ -8,6 +8,12 @@ from typing import Dict, List, Optional, Union, Any
 from datetime import datetime
 import time
 
+try:
+    from langdetect import detect, LangDetectException
+except ImportError:
+    detect = None
+    LangDetectException = Exception
+
 from ..config import SERVICE_CONFIG
 from ..exceptions import LanguageDetectionError
 from ..utils import get_logger
@@ -154,21 +160,21 @@ class LanguageDetectionService:
             return pattern_result
         
         # 3. Main detection (langdetect)
-        try:
-            from langdetect import detect, LangDetectException
-            detected_lang = detect(text)
-            
-            if detected_lang in self.language_mapping:
-                mapped_lang = self.language_mapping[detected_lang]
-                confidence = 0.7  # Medium confidence for langdetect
+        if detect is not None:
+            try:
+                detected_lang = detect(text)
                 
-                result = self._create_detection_result(mapped_lang, confidence, 'langdetect')
-                self._update_stats(confidence, 'langdetect')
-                return result
-                
-        except LangDetectException as e:
-            self.logger.debug(f"LangDetect failed: {e}")
-            # Don't return result with method 'langdetect' on error
+                if detected_lang in self.language_mapping:
+                    mapped_lang = self.language_mapping[detected_lang]
+                    confidence = 0.7  # Medium confidence for langdetect
+                    
+                    result = self._create_detection_result(mapped_lang, confidence, 'langdetect')
+                    self._update_stats(confidence, 'langdetect')
+                    return result
+                    
+            except LangDetectException as e:
+                self.logger.debug(f"LangDetect failed: {e}")
+                # Don't return result with method 'langdetect' on error
         
         # 4. Fallback detection
         if use_fallback:

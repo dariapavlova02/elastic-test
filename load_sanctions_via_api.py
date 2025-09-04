@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class APISanctionsLoader:
     """Load sanctions data via API."""
     
-    def __init__(self, api_url: str = "http://95.217.84.234:8080", data_path: str = "ai-service/src/ai_service/data"):
+    def __init__(self, api_url: str = "http://95.217.84.234", data_path: str = "ai-service/src/ai_service/data"):
         """Initialize the loader."""
         self.api_url = api_url.rstrip('/')
         self.data_path = data_path
@@ -133,7 +133,7 @@ async def main():
     import argparse
     
     parser = argparse.ArgumentParser(description="Load sanctions data via API")
-    parser.add_argument("--api-url", default="http://95.217.84.234:8080", help="API URL")
+    parser.add_argument("--api-url", default="http://95.217.84.234", help="API URL")
     parser.add_argument("--data-path", default="ai-service/src/ai_service/data", help="Path to data files")
     parser.add_argument("--limit", type=int, help="Limit number of entities to load (for testing)")
     
