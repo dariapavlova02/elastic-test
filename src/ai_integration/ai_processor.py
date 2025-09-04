@@ -38,14 +38,27 @@ class AIProcessor:
         """Initialize AI processor."""
         try:
             # Initialize AI services
+            logger.info("Initializing OrchestratorService...")
             self.orchestrator = OrchestratorService()
+            logger.info("OrchestratorService initialized successfully")
+            
+            logger.info("Initializing EmbeddingService...")
             self.embedding_service = EmbeddingService()
+            logger.info("EmbeddingService initialized successfully")
+            
+            logger.info("Initializing NormalizationService...")
             self.normalization_service = NormalizationService()
+            logger.info("NormalizationService initialized successfully")
+            
+            logger.info("Initializing LanguageDetectionService...")
             self.language_detection = LanguageDetectionService()
+            logger.info("LanguageDetectionService initialized successfully")
             
             logger.info("AI services initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize AI services: {e}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            logger.error(f"Exception details: {str(e)}")
             raise
     
     async def process_text(self, text: str, generate_embeddings: bool = True, generate_variants: bool = True) -> Dict[str, Any]:
