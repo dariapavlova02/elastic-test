@@ -35,8 +35,8 @@ services:
       - ELASTICSEARCH_URL=http://elasticsearch:9200
       - LOG_LEVEL=INFO
       - APP_ENV=production
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     volumes:
       - ./logs:/app/logs
     depends_on:
@@ -50,6 +50,19 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-simple
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/simple-nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - server_api
+    networks:
+      - payment-server-network
+    restart: unless-stopped
 
 volumes:
   elasticsearch_data:
