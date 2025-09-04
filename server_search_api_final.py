@@ -103,6 +103,11 @@ async def startup_event():
     try:
         logger.info("Initializing server services...")
         
+        # Debug environment variables
+        import os
+        logger.info(f"ELASTICSEARCH_HOST: {os.getenv('ELASTICSEARCH_HOST', 'NOT SET')}")
+        logger.info(f"ELASTICSEARCH_PORT: {os.getenv('ELASTICSEARCH_PORT', 'NOT SET')}")
+        
         # Initialize Elasticsearch
         es_client = ElasticsearchClient()
         
