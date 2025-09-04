@@ -20,6 +20,10 @@ class ElasticsearchConfig(BaseSettings):
     use_ssl: bool = Field(default=False, env="ELASTICSEARCH_USE_SSL")
     verify_certs: bool = Field(default=False, env="ELASTICSEARCH_VERIFY_CERTS")
     
+    class Config:
+        env_file = ".env"
+        extra = "ignore"
+    
     @property
     def url(self) -> str:
         """Get Elasticsearch URL."""
@@ -35,6 +39,10 @@ class VectorConfig(BaseSettings):
     )
     dimension: int = Field(default=384, env="VECTOR_DIMENSION")
     index_name: str = Field(default="payment_vectors", env="VECTOR_INDEX_NAME")
+    
+    class Config:
+        env_file = ".env"
+        extra = "ignore"
 
 
 class DataConfig(BaseSettings):
@@ -47,12 +55,20 @@ class DataConfig(BaseSettings):
         default="./data/raw/sanctions.csv",
         env="SANCTIONS_DATA_PATH"
     )
+    
+    class Config:
+        env_file = ".env"
+        extra = "ignore"
 
 
 class LoggingConfig(BaseSettings):
     """Logging configuration."""
     level: str = Field(default="INFO", env="LOG_LEVEL")
     file_path: str = Field(default="./logs/app.log", env="LOG_FILE")
+    
+    class Config:
+        env_file = ".env"
+        extra = "ignore"
 
 
 class Config:
