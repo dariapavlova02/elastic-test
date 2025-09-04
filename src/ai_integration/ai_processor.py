@@ -48,13 +48,14 @@ class AIProcessor:
             logger.error(f"Failed to initialize AI services: {e}")
             raise
     
-    async def process_text(self, text: str, include_embeddings: bool = True) -> Dict[str, Any]:
+    async def process_text(self, text: str, generate_embeddings: bool = True, generate_variants: bool = True) -> Dict[str, Any]:
         """
         Process text using AI service.
         
         Args:
             text: Text to process
-            include_embeddings: Whether to include vector embeddings
+            generate_embeddings: Whether to generate vector embeddings
+            generate_variants: Whether to generate text variants
             
         Returns:
             Processing result
@@ -73,8 +74,8 @@ class AIProcessor:
             # Process text through orchestrator
             result = await self.orchestrator.process_text(
                 text=text,
-                generate_embeddings=include_embeddings,
-                generate_variants=True
+                generate_embeddings=generate_embeddings,
+                generate_variants=generate_variants
             )
             
             return {
@@ -84,7 +85,7 @@ class AIProcessor:
                 "language": result.language,
                 "language_confidence": result.language_confidence,
                 "variants": result.variants,
-                "embeddings": result.embeddings if include_embeddings else [],
+                "embeddings": result.embeddings if generate_embeddings else [],
                 "processing_time": result.processing_time,
                 "errors": result.errors or []
             }
@@ -158,7 +159,7 @@ class AIProcessor:
                 }
             
             # Process text
-            result = await self.process_text(combined_text, include_embeddings=True)
+            result = await self.process_text(combined_text, generate_embeddings=True)
             
             # Add processing result to payment data
             payment_data['ai_processing'] = result
@@ -235,7 +236,7 @@ class AIProcessor:
                 }
             
             # Process text
-            result = await self.process_text(combined_text, include_embeddings=True)
+            result = await self.process_text(combined_text, generate_embeddings=True)
             
             # Add processing result to entity data
             entity_data['ai_processing'] = result
