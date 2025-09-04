@@ -26,10 +26,10 @@ services:
       dockerfile: Dockerfile.server.simple
     container_name: server-api-basic
     environment:
-      - ELASTICSEARCH_HOST=elasticsearch
-      - ELASTICSEARCH_PORT=9200
-      - LOG_LEVEL=INFO
-      - APP_ENV=production
+      ELASTICSEARCH_HOST: elasticsearch
+      ELASTICSEARCH_PORT: 9200
+      LOG_LEVEL: INFO
+      APP_ENV: production
     ports:
       - "8000:8000"
     depends_on:
