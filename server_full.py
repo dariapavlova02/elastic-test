@@ -79,8 +79,11 @@ class HealthResponse(BaseModel):
 class IndexRequest(BaseModel):
     """Index document request."""
     index: str = Field(..., description="Index name")
-    document: Dict[str, Any] = Field(..., description="Document to index")
+    document: dict = Field(..., description="Document to index")
     doc_id: Optional[str] = Field(None, description="Optional document ID")
+    
+    class Config:
+        arbitrary_types_allowed = True
 
 # Dependency to get services
 async def get_services():
@@ -236,8 +239,8 @@ async def search(
             try:
                 ai_result = await ai_processor.process_text(
                     text=query.query,
-                    include_embeddings=True,
-                    include_variants=True
+                    generate_embeddings=True,
+                    generate_variants=True
                 )
                 
                 if ai_result["success"]:
@@ -356,9 +359,12 @@ async def index_document(request: IndexRequest, services: dict = Depends(get_ser
     try:
         es_client = services["es_client"]
         
+        # Convert document to dict if it's not already
+        document = dict(request.document) if hasattr(request.document, '__dict__') else request.document
+        
         response = es_client.index_document(
             index_name=request.index,
-            document=request.document,
+            document=document,
             doc_id=request.doc_id
         )
         
@@ -418,8 +424,8 @@ async def normalize_text(
         
         result = await services["ai_processor"].process_text(
             text=request.text,
-            include_embeddings=False,
-            include_variants=True
+            generate_embeddings=False,
+            generate_variants=True
         )
         
         return {
