@@ -10,7 +10,13 @@ from pathlib import Path
 
 # Add ai-service to path
 ai_service_path = Path(__file__).parent.parent.parent / "ai-service" / "src"
-sys.path.insert(0, str(ai_service_path))
+if ai_service_path.exists():
+    sys.path.insert(0, str(ai_service_path))
+else:
+    # Fallback for container environment
+    ai_service_path = Path("/app/ai-service/src")
+    if ai_service_path.exists():
+        sys.path.insert(0, str(ai_service_path))
 
 try:
     from ai_service.services.orchestrator_service import OrchestratorService

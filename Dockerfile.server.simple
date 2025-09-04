@@ -36,6 +36,9 @@ COPY . .
 # Create necessary directories
 RUN mkdir -p logs
 
+# Add ai-service to Python path
+ENV PYTHONPATH="/app/ai-service/src:${PYTHONPATH}"
+
 # Download SpaCy models
 RUN python -m spacy download en_core_web_sm
 RUN python -m spacy download ru_core_news_sm
