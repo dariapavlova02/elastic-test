@@ -25,6 +25,8 @@ RUN pip install --no-cache-dir \
     spacy \
     nltk \
     pymorphy3 \
+    pymorphy3-dicts-ru \
+    pymorphy3-dicts-uk \
     transliterate \
     sentence-transformers \
     torch \

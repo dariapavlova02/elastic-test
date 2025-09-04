@@ -135,7 +135,28 @@ async def startup_event():
             from src.ai_integration import AIProcessor, DataNormalizer
             ai_processor = AIProcessor()
             data_normalizer = DataNormalizer(ai_processor)
-            logger.info("✅ AI services initialized successfully")
+
+            # Quick runtime self-test – ensure the processor can handle a simple text.
+            try:
+                test_result = await ai_processor.process_text(
+                    text="healthcheck",
+                    generate_embeddings=False,
+                    generate_variants=False
+                )
+                if not test_result.get("success", False):
+                    raise RuntimeError("AI processor self-test failed")
+            except Exception as ai_e:
+                logger.warning(f"AI processor failed self-test: {ai_e}. Switching to stub implementation.")
+                from src.ai_integration.ai_stub import (
+                    AIProcessor as AIProcessorStub,
+                    DataNormalizer as DataNormalizerStub,
+                )
+                ai_processor = AIProcessorStub()
+                data_normalizer = DataNormalizerStub(ai_processor)
+                logger.info("✅ Stub AI services initialized successfully (self-test fallback)")
+
+            else:
+                logger.info("✅ AI services initialized successfully and passed self-test")
         except Exception as e:
             logger.warning(f"AI services unavailable: {e}")
             logger.info("API will work with limited functionality (no AI processing)")
