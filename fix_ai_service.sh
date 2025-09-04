@@ -26,4 +26,8 @@ sleep 30
 echo "🧪 Testing AI service..."
 curl -X POST http://localhost/search -H "Content-Type: application/json" -d '{"query": "Петро Порошенко", "limit": 1}' | jq '.server_info'
 
+# Test normalization endpoint
+echo "🧪 Testing normalization..."
+curl -X POST http://localhost/normalize -H "Content-Type: application/json" -d '{"text": "Петро Порошенко"}' | jq '.success'
+
 echo "✅ Done! Check the output above for AI service status."
