@@ -15,14 +15,14 @@ class AIProcessorStub:
         """Initialize stub AI processor."""
         logger.info("Initializing AI processor stub (limited functionality)")
         
-    async def process_text(self, text: str, include_embeddings: bool = True, include_variants: bool = False) -> Dict[str, Any]:
+    async def process_text(self, text: str, generate_embeddings: bool = True, generate_variants: bool = False) -> Dict[str, Any]:
         """
         Process text with basic normalization.
         
         Args:
             text: Text to process
-            include_embeddings: Whether to include embeddings (stub returns empty)
-            include_variants: Whether to include variants (stub returns empty)
+            generate_embeddings: Whether to generate embeddings (stub returns empty)
+            generate_variants: Whether to generate variants (stub returns empty)
             
         Returns:
             Dict with processing results
@@ -49,11 +49,11 @@ class AIProcessorStub:
                 }
             }
             
-            if include_embeddings:
+            if generate_embeddings:
                 # Return dummy embedding vector
                 result["embeddings"] = [0.0] * 384  # Standard sentence-transformer size
                 
-            if include_variants:
+            if generate_variants:
                 # Return basic variants
                 result["variants"] = [normalized, text.strip()]
                 
@@ -66,8 +66,8 @@ class AIProcessorStub:
                 "error": str(e),
                 "normalized_text": text,
                 "language": "unknown",
-                "embeddings": [0.0] * 384 if include_embeddings else None,
-                "variants": [text] if include_variants else None
+                "embeddings": [0.0] * 384 if generate_embeddings else None,
+                "variants": [text] if generate_variants else None
             }
 
 
@@ -81,7 +81,7 @@ class DataNormalizerStub:
         
     async def normalize(self, text: str) -> Dict[str, Any]:
         """Normalize text using AI processor."""
-        return await self.ai_processor.process_text(text, include_embeddings=False)
+        return await self.ai_processor.process_text(text, generate_embeddings=False)
 
 
 # Export stub classes
