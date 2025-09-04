@@ -30,9 +30,9 @@ except ImportError:
 
 # Import configuration - use proper relative imports
 try:
-    from ..data.dicts.english_names import ENGLISH_NAMES as english_names
-    from ..data.dicts.russian_names import RUSSIAN_NAMES as russian_names
-    from ..data.dicts.ukrainian_names import UKRAINIAN_NAMES as ukrainian_names
+    from ..data.dicts.english_names import NAMES as english_names
+    from ..data.dicts.russian_names import NAMES as russian_names
+    from ..data.dicts.ukrainian_names import NAMES as ukrainian_names
 except ImportError:
     english_names = {}
     russian_names = {}
