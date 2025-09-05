@@ -61,23 +61,52 @@ class APISanctionsLoader:
                     processed['vector'] = processed['vector'][0]
                     logger.info(f"Flattened vector, new length: {len(processed['vector'])}")
             
-            # Simplify the document for Elasticsearch
+            # Simplify the document for Elasticsearch (parent doc only)
             simplified = {
                 'id': processed.get('id'),
-                'name': processed.get('name'),
-                'name_en': processed.get('name_en'),
-                'name_ru': processed.get('name_ru'),
-                'entity_type': processed.get('entity_type'),
+                'name': (processed.get('name') or '').strip() or None,
+                'name_en': (processed.get('name_en') or '').strip() or None,
+                'name_ru': (processed.get('name_ru') or '').strip() or None,
+                'entity_type': processed.get('entity_type') or None,
+                # birthdate is mapped as date in ES; drop empty/invalid values
                 'birthdate': processed.get('birthdate'),
-                'itn': processed.get('itn'),
-                'status': processed.get('status'),
-                'source': processed.get('source'),
-                'vector': processed.get('vector'),
-                'variants': processed.get('variants', [])
+                'itn': processed.get('itn') or None,
+                # map status to string to satisfy keyword mapping consistently
+                'status': str(processed.get('status')) if processed.get('status') is not None else None,
+                'source': processed.get('source') or None,
+                'vector': processed.get('vector')
+                # Do NOT include 'variants' here; variants are indexed separately
             }
-            
-            # Remove None values
-            simplified = {k: v for k, v in simplified.items() if v is not None}
+
+            # Clean up 'birthdate': remove if empty-ish or clearly invalid
+            bd = simplified.get('birthdate')
+            if isinstance(bd, str):
+                if not bd.strip() or bd.strip() in {'0000-00-00', 'null', 'None', '-'}:
+                    simplified['birthdate'] = None
+            elif bd is None:
+                simplified['birthdate'] = None
+
+            # Ensure vector is a flat list of JSON-serializable floats with correct dims if present
+            vec = simplified.get('vector')
+            if isinstance(vec, list) and vec:
+                # Flatten 1-level nesting (e.g., [[...]] → [...])
+                if len(vec) == 1 and isinstance(vec[0], list):
+                    vec = vec[0]
+                try:
+                    vec = [float(x) for x in vec if x is not None]
+                except Exception:
+                    logger.warning("Vector contained non-numeric values; dropping vector for this doc")
+                    vec = []
+                # Optional: ensure expected dimension (384)
+                if len(vec) not in (0, 384):
+                    logger.warning(f"Vector has unexpected length {len(vec)}; dropping vector for this doc")
+                    vec = []
+                simplified['vector'] = vec
+            elif vec is None:
+                simplified['vector'] = None
+
+            # Remove empty/None values to avoid ES parsing issues
+            simplified = {k: v for k, v in simplified.items() if v not in (None, '', [], {})}
             
             # Send parent entity to API
             response = requests.post(
