@@ -661,10 +661,22 @@ class OrchestratorService:
                 m = _re.search(r'\b(?:фоп|ип|fop|ip)\b\s*(.+)$', text_for_processing, _re.IGNORECASE)
                 if m:
                     fop_tail = m.group(1).strip()
-                    pers = self._canonicalize_name_phrase(fop_tail, language)
-                    if pers:
-                        final_normalized = pers
-                        self.logger.info(f"Canonicalized FOP/IP person: '{fop_tail}' -> '{final_normalized}'")
+                    # Keep order Surname Given Patronymic; filter out non-name tokens (e.g., 'аренда', dates)
+                    tokens = _re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґ\'\u02BC\u2019\-]+", fop_tail)
+                    name_like = []
+                    for t in tokens:
+                        if len(t) < 2:
+                            continue
+                        # Heuristic: first letter uppercase, contains letters/apostrophes
+                        if _re.match(r"^[A-ZА-ЯІЇЄ][a-zA-Zа-яіїєґ\'\u02BC\u2019\-]+$", t):
+                            name_like.append(t)
+                        # Patronymic endings (ru/uk)
+                        elif _re.search(r"(вич|вна|івна|йович|ьович|ич)$", t, _re.IGNORECASE):
+                            name_like.append(t)
+                    # Keep up to first three plausible name tokens
+                    if name_like:
+                        final_normalized = ' '.join(name_like[:3])
+                        self.logger.info(f"FOP/IP person extracted: '{fop_tail}' -> '{final_normalized}'")
             else:
                 # Try to extract a company name if no FOP/IP
                 comp = self._extract_company_context_name(text_for_processing, language)

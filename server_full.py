@@ -441,47 +441,41 @@ async def search(
                 elif len((normalized_query or '').strip()) <= 12:
                     text_search["min_score"] = 0.5
                 
-                # Search in available indices, include variants companion
+                # Search in available indices, include variants companion (without index_exists gating)
                 for index_name in ["sanctions", "payment_vectors", "test_index", "sanctions_variants"]:
-                    if es_client.index_exists(index_name):
-                        try:
-                            text_results = es_client.search(
-                                index_name=index_name,
-                                query=text_search,
-                                size=query.limit - len(results)
-                            )
-                            
-                            for hit in text_results.get("hits", {}).get("hits", []):
-                                if index_name == "sanctions_variants":
-                                    parent_id = hit.get("_source", {}).get("parent_id")
-                                    if not parent_id or any(r["id"] == parent_id for r in results):
-                                        continue
-                                    try:
-                                        parent = es_client.client.get(index="sanctions", id=parent_id)
-                                        results.append({
-                                            "id": parent_id,
-                                            "score": hit.get("_score", 0.0),
-                                            "source": parent.get("_source", {}),
-                                            "index": "sanctions"
-                                        })
-                                    except Exception as ge:
-                                        logger.info(f"Failed to fetch parent {parent_id}: {ge}")
-                                else:
-                                    # Avoid duplicates
-                                    if not any(r["id"] == hit["_id"] for r in results):
-                                        results.append({
-                                            "id": hit["_id"],
-                                            "score": hit["_score"],
-                                            "source": hit["_source"],
-                                            "index": index_name
-                                        })
-                                    
-                                if len(results) >= query.limit:
-                                    break
-                                    
-                        except Exception as e:
-                            logger.warning(f"Text search in {index_name} failed: {e}")
-                            
+                    try:
+                        text_results = es_client.search(
+                            index_name=index_name,
+                            query=text_search,
+                            size=query.limit - len(results)
+                        )
+                        for hit in text_results.get("hits", {}).get("hits", []):
+                            if index_name == "sanctions_variants":
+                                parent_id = hit.get("_source", {}).get("parent_id")
+                                if not parent_id or any(r["id"] == parent_id for r in results):
+                                    continue
+                                try:
+                                    parent = es_client.client.get(index="sanctions", id=parent_id)
+                                    results.append({
+                                        "id": parent_id,
+                                        "score": hit.get("_score", 0.0),
+                                        "source": parent.get("_source", {}),
+                                        "index": "sanctions"
+                                    })
+                                except Exception as ge:
+                                    logger.info(f"Failed to fetch parent {parent_id}: {ge}")
+                            else:
+                                if not any(r["id"] == hit["_id"] for r in results):
+                                    results.append({
+                                        "id": hit["_id"],
+                                        "score": hit["_score"],
+                                        "source": hit["_source"],
+                                        "index": index_name
+                                    })
+                            if len(results) >= query.limit:
+                                break
+                    except Exception as e:
+                        logger.warning(f"Text search in {index_name} failed: {e}")
                     if len(results) >= query.limit:
                         break
                         
