@@ -92,18 +92,23 @@ class LanguageDetectionService:
                 r'\b(is|are|was|were|be|been|being|have|has|had|do|does|did)\b'
             ],
             'ru': [
-                r'\b(и|в|на|с|по|за|от|до|из|у|о|а|но|или|если|когда|где|как|что|кто)\b',
+                r'\b(и|в|на|с|по|за|от|до|из|у|о|а|но|или|если|когда|где|как|что|кто|деньги|средства|перевод|платеж|оплата)\b',
                 r'\b(был|была|были|быть|есть|нет|это|тот|эта|эти)\b',
                 r'[аеёиоуыэюя]{2,}',  # Long vowels
                 r'[йцкнгшщзхфвпрлджчсмтб]{3,}'  # Long consonants
             ],
             'uk': [
-                r'\b(і|в|на|з|по|за|від|до|з|у|о|а|але|або|якщо|коли|де|як|що|хто)\b',
-                r'\b(був|була|були|бути|є|немає|це|той|ця|ці)\b',
+                r'\b(і|в|на|з|по|за|від|до|з|у|о|а|але|або|якщо|коли|де|як|що|хто|кошти|гроші|платіж|переказ|одержувач|отримувач)\b',
+                r'\b(був|була|були|бути|є|немає|це|той|ця|ці|усього|загалом)\b',
                 r'[аеєиіїоущюя]{2,}',  # Long vowels
                 r'[йцкнгшщзхфвпрлджчсмтб]{3,}'  # Long consonants
             ]
         }
+
+        # Heuristics: Ukrainian surname suffixes
+        self.uk_surname_suffixes = (
+            'енко', 'енка', 'чук', 'чука', 'юк', 'юка', 'ук', 'ука', 'ський', 'ського', 'цький', 'цького', 'зький', 'зького', 'ко', 'ка'
+        )
         
         # Detection statistics
         self.detection_stats = {
@@ -266,6 +271,14 @@ class LanguageDetectionService:
         
         # If there is Cyrillic in general (without specific characters)
         if cyrillic_chars > 0:
+            # Surname suffix heuristic (strongly favors Ukrainian)
+            words = re.findall(r'\b[А-ЯІЇЄҐ][а-яіїєґА-ЯІЇЄҐ\'-]+\b', text)
+            for w in words:
+                lw = w.lower()
+                if any(lw.endswith(suf) for suf in self.uk_surname_suffixes):
+                    confidence = 0.92
+                    return self._create_detection_result('uk', confidence, 'cyrillic_surname_suffix')
+
             # Additional check for Ukrainian words
             uk_patterns = len(re.findall(r'\b(і|в|на|з|по|за|від|до|у|о|а|але|або|якщо|коли|де|як|що|хто|це|той|ця|ці|був|була|були|бути|є|немає)\b', text, re.IGNORECASE))
             ru_patterns = len(re.findall(r'\b(и|в|на|с|по|за|от|до|из|у|о|а|но|или|если|когда|где|как|что|кто|это|тот|эта|эти|был|была|были|быть|есть|нет)\b', text, re.IGNORECASE))

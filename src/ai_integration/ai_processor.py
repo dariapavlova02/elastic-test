@@ -6,6 +6,11 @@ import logging
 import sys
 import os
 from typing import Dict, List, Any, Optional
+import re
+try:
+    from unidecode import unidecode as _unidecode
+except Exception:
+    _unidecode = None
 from pathlib import Path
 
 # Add ai-service to path
@@ -60,6 +65,13 @@ class AIProcessor:
             logger.error(f"Exception type: {type(e).__name__}")
             logger.error(f"Exception details: {str(e)}")
             raise
+        # Arabic transliteration (optional)
+        try:
+            from camel_tools.transliteration.transliterator import Transliterator
+            self._ar_translit = Transliterator.factory('ar2lat')
+            logger.info("CAMeL Tools Arabic transliterator initialized")
+        except Exception:
+            self._ar_translit = None
     
     async def process_text(self, text: str, generate_embeddings: bool = True, generate_variants: bool = True) -> Dict[str, Any]:
         """
@@ -239,7 +251,7 @@ class AIProcessor:
             
             # Combine all text parts
             combined_text = " ".join(text_parts)
-            
+
             if not combined_text.strip():
                 return {
                     "success": False,
@@ -248,18 +260,124 @@ class AIProcessor:
                     "embeddings": []
                 }
             
-            # Process text
-            result = await self.process_text(combined_text, generate_embeddings=True)
-            
+            # Base names to expand
+            base_names: List[str] = []
+            for key in ('name', 'name_en', 'name_ru'):
+                val = entity_data.get(key)
+                if val and isinstance(val, str) and val.strip():
+                    base_names.append(val.strip())
+
+            # Collect variants and compute embeddings
+            variant_texts: List[str] = []
+            variants_payload: List[Dict[str, Any]] = []
+            primary_vector: List[float] = []
+            primary_done = False
+
+            def contains_arabic(s: str) -> bool:
+                return any('\u0600' <= ch <= '\u06FF' for ch in s)
+
+            def arabic_to_latin(s: str) -> str:
+                # Prefer CAMeL Tools if available, fallback to simple map
+                if getattr(self, '_ar_translit', None) is not None:
+                    try:
+                        return self._ar_translit.transliterate(s)
+                    except Exception:
+                        pass
+                table = {
+                    'ا': 'a', 'أ': 'a', 'إ': 'i', 'آ': 'aa', 'ب': 'b', 'ت': 't', 'ث': 'th', 'ج': 'j', 'ح': 'h',
+                    'خ': 'kh', 'د': 'd', 'ذ': 'dh', 'ر': 'r', 'ز': 'z', 'س': 's', 'ش': 'sh', 'ص': 's', 'ض': 'd',
+                    'ط': 't', 'ظ': 'z', 'ع': 'a', 'غ': 'gh', 'ف': 'f', 'ق': 'q', 'ك': 'k', 'ل': 'l', 'م': 'm',
+                    'ن': 'n', 'ه': 'h', 'و': 'w', 'ؤ': 'u', 'ي': 'y', 'ئ': 'i', 'ى': 'a', 'ة': 'a'
+                }
+                return ''.join(table.get(ch, ch) for ch in s)
+
+            # Pull more aliases if provided by data
+            alias_keys = ('aliases', 'aka', 'alt_names', 'other_names')
+            for k in alias_keys:
+                val = entity_data.get(k)
+                if isinstance(val, list):
+                    for s in val:
+                        if isinstance(s, str) and s.strip():
+                            base_names.append(s.strip())
+                elif isinstance(val, str) and val.strip():
+                    # Split by comma/semicolon
+                    for s in re.split(r'[;,]', val):
+                        if s.strip():
+                            base_names.append(s.strip())
+
+            for nm in base_names:
+                try:
+                    res = await self.process_text(nm, generate_embeddings=False, generate_variants=True)
+                    if not res.get('success'):
+                        continue
+                    norm = res.get('normalized_text') or nm
+                    lang = res.get('language', 'unknown')
+                    # Keep normalized first
+                    if norm not in variant_texts:
+                        variant_texts.append(norm)
+                        variants_payload.append({'text': norm, 'lang': lang, 'weight': 1.0})
+                    # Add limited variants (top K)
+                    for v in (res.get('variants') or [])[:10]:
+                        if v and v not in variant_texts:
+                            variant_texts.append(v)
+                            variants_payload.append({'text': v, 'lang': lang, 'weight': 0.8})
+                    # Arabic transliteration (index-time), if applicable
+                    if contains_arabic(nm):
+                        ar_lat = arabic_to_latin(nm)
+                        if ar_lat and ar_lat not in variant_texts:
+                            variant_texts.append(ar_lat)
+                            variants_payload.append({'text': ar_lat, 'lang': 'ar-Latn', 'weight': 0.7})
+                    # Cyrillic -> Latin transliteration for RU/UK variants to help cross-script matching
+                    if _unidecode is not None and (re.search(r"[\u0400-\u04FF]", norm) or re.search(r"[\u0400-\u04FF]", nm)):
+                        lat = _unidecode(norm)
+                        if lat and lat not in variant_texts:
+                            variant_texts.append(lat)
+                            variants_payload.append({'text': lat, 'lang': f'{lang}-Latn', 'weight': 0.6})
+                except Exception as _:
+                    continue
+
+            # Deduplicate hard
+            variant_texts = list(dict.fromkeys([t for t in variant_texts if isinstance(t, str)]))
+            if not variant_texts:
+                # Fallback to combined text
+                variant_texts = [combined_text]
+                variants_payload = [{'text': combined_text, 'lang': 'unknown', 'weight': 1.0}]
+
+            # Compute embeddings for all collected variants
+            try:
+                emb_res = self.embedding_service.get_embeddings(variant_texts)
+                if emb_res.get('success'):
+                    embs = emb_res.get('embeddings', [])
+                else:
+                    embs = []
+            except Exception:
+                embs = []
+
+            # Attach vectors back to payload
+            if embs and len(embs) == len(variants_payload):
+                for i, emb in enumerate(embs):
+                    variants_payload[i]['vector'] = emb
+                    if not primary_done:
+                        primary_vector = emb
+                        primary_done = True
+            else:
+                # No vectors, leave empty
+                for vp in variants_payload:
+                    vp['vector'] = []
+
             # Add processing result to entity data
-            entity_data['ai_processing'] = result
-            entity_data['vector'] = result.get('embeddings', [])
+            entity_data['ai_processing'] = {
+                'normalized_texts': variant_texts[:1],
+                'total_variants': len(variants_payload)
+            }
+            entity_data['variants'] = variants_payload
+            entity_data['vector'] = primary_vector
             
             return {
                 "success": result['success'],
                 "entity_data": entity_data,
-                "embeddings": result.get('embeddings', []),
-                "normalized_text": result.get('normalized_text', ''),
+                "embeddings": entity_data.get('vector', []),
+                "normalized_text": entity_data.get('ai_processing', {}).get('normalized_texts', [''])[0],
                 "language": result.get('language', 'unknown')
             }
             

@@ -72,13 +72,14 @@ class APISanctionsLoader:
                 'itn': processed.get('itn'),
                 'status': processed.get('status'),
                 'source': processed.get('source'),
-                'vector': processed.get('vector')
+                'vector': processed.get('vector'),
+                'variants': processed.get('variants', [])
             }
             
             # Remove None values
             simplified = {k: v for k, v in simplified.items() if v is not None}
             
-            # Send to API
+            # Send parent entity to API
             response = requests.post(
                 f"{self.api_url}/index",
                 json={
@@ -90,7 +91,79 @@ class APISanctionsLoader:
             
             if response.status_code == 200:
                 logger.info(f"✅ Successfully loaded entity: {entity.get('name', 'Unknown')}")
-                return True
+                # Also send variants to companion index
+                parent_id = simplified.get('id')
+                variants = processed.get('variants', [])
+                ok_variants = True
+                for v in variants:
+                    try:
+                        vdoc = {
+                            'parent_id': parent_id,
+                            'text': v.get('text'),
+                            'lang': v.get('lang'),
+                            'weight': v.get('weight'),
+                            'vector': v.get('vector')
+                        }
+                        vdoc = {k: v for k, v in vdoc.items() if v is not None}
+                        vresp = requests.post(
+                            f"{self.api_url}/index",
+                            json={"index": "sanctions_variants", "document": vdoc},
+                            timeout=30
+                        )
+                        if vresp.status_code != 200:
+                            ok_variants = False
+                            logger.warning(f"Variant index failed: {vresp.status_code} {vresp.text}")
+                    except Exception as ve:
+                        ok_variants = False
+                        logger.warning(f"Variant index error: {ve}")
+                # Also index into parent-child sanctions_pc
+                try:
+                    # Parent entity with join field
+                    parent_pc = {
+                        'name': processed.get('name'),
+                        'name_en': processed.get('name_en'),
+                        'name_ru': processed.get('name_ru'),
+                        'entity_type': processed.get('entity_type'),
+                        'source': processed.get('source'),
+                        'vector': processed.get('vector'),
+                        'doc_rel': { 'name': 'entity' }
+                    }
+                    pc_parent_resp = requests.post(
+                        f"{self.api_url}/index",
+                        json={
+                            "index": "sanctions_pc",
+                            "document": parent_pc,
+                            "doc_id": parent_id,
+                            "routing": parent_id
+                        },
+                        timeout=30
+                    )
+                    if pc_parent_resp.status_code != 200:
+                        logger.warning(f"PC parent index failed: {pc_parent_resp.status_code} {pc_parent_resp.text}")
+                    # Child variants
+                    for v in variants:
+                        vdoc = {
+                            'text': v.get('text'),
+                            'lang': v.get('lang'),
+                            'weight': v.get('weight'),
+                            'vector': v.get('vector'),
+                            'doc_rel': { 'name': 'variant', 'parent': parent_id }
+                        }
+                        pc_child_resp = requests.post(
+                            f"{self.api_url}/index",
+                            json={
+                                "index": "sanctions_pc",
+                                "document": vdoc,
+                                "routing": parent_id
+                            },
+                            timeout=30
+                        )
+                        if pc_child_resp.status_code != 200:
+                            logger.warning(f"PC child index failed: {pc_child_resp.status_code} {pc_child_resp.text}")
+                except Exception as pce:
+                    logger.warning(f"PC indexing error: {pce}")
+
+                return ok_variants
             else:
                 logger.error(f"❌ Failed to load entity: {response.status_code} - {response.text}")
                 return False

@@ -28,7 +28,17 @@ def update_sanctions_index():
                 "vector": {
                     "type": "dense_vector",
                     "dims": 384,
-                    "index": False  # Don't index for now
+                    "index": True,
+                    "similarity": "cosine"
+                },
+                "variants": {
+                    "type": "nested",
+                    "properties": {
+                        "text": {"type": "text", "analyzer": "standard"},
+                        "lang": {"type": "keyword"},
+                        "weight": {"type": "float"},
+                        "vector": {"type": "dense_vector", "dims": 384, "index": True, "similarity": "cosine"}
+                    }
                 }
             }
         },

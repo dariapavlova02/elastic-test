@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Union, Any
 from dataclasses import dataclass
 from datetime import datetime
 
-from ..config import PERFORMANCE_CONFIG
+from ..config import PERFORMANCE_CONFIG, SERVICE_CONFIG
 from ..exceptions import (
     ServiceInitializationError,
     ProcessingError,
@@ -100,6 +100,8 @@ class OrchestratorService:
             self.embedding_service = EmbeddingService()
             self.cache_service = CacheService(max_size=cache_size, default_ttl=default_ttl)
             self.signal_service = SignalService()
+            # Build canonical name maps for quick diminutive/variant -> canonical lookup
+            self._init_canonical_maps()
             
             # Initialize smart filter with existing services
             # DISABLED: Smart filter temporarily disabled
@@ -126,6 +128,409 @@ class OrchestratorService:
         }
         
         self.logger.info("OrchestratorService initialized with all services")
+
+    def _init_canonical_maps(self):
+        """Build reverse maps for names: variant/diminutive -> canonical."""
+        try:
+            from ..data.dicts.ukrainian_names import NAMES as UK_NAMES
+        except Exception:
+            UK_NAMES = {}
+        try:
+            from ..data.dicts.russian_names import NAMES as RU_NAMES
+        except Exception:
+            RU_NAMES = {}
+        # Merge extra diminutives if provided
+        try:
+            from ..data.dicts.diminutives_extra import EXTRA_DIMINUTIVES_RU, EXTRA_DIMINUTIVES_UK
+        except Exception:
+            EXTRA_DIMINUTIVES_RU = {}
+            EXTRA_DIMINUTIVES_UK = {}
+
+        def merge_extras(base: dict, extra: dict):
+            for canonical, adds in extra.items():
+                info = base.setdefault(canonical, {'variants': [], 'diminutives': [], 'transliterations': [], 'declensions': []})
+                dim = set(info.get('diminutives', []))
+                for a in adds:
+                    if a not in dim:
+                        info.setdefault('diminutives', []).append(a)
+        merge_extras(RU_NAMES, EXTRA_DIMINUTIVES_RU)
+        merge_extras(UK_NAMES, EXTRA_DIMINUTIVES_UK)
+
+        def build_reverse(d):
+            rev = {}
+            genders = {}
+            for canonical, info in d.items():
+                canon_l = canonical.lower()
+                rev[canon_l] = canonical
+                g = info.get('gender')
+                if g:
+                    genders[canonical] = g
+                for arr_key in ("variants", "diminutives", "declensions"):
+                    for alt in info.get(arr_key, []):
+                        rev[str(alt).lower()] = canonical
+            return rev, genders
+
+        uk_rev, uk_genders = build_reverse(UK_NAMES)
+        ru_rev, ru_genders = build_reverse(RU_NAMES)
+        self._canonical_maps = {'uk': uk_rev, 'ru': ru_rev}
+        self._name_genders = {'uk': uk_genders, 'ru': ru_genders}
+
+        # Build initial → preferred canonical name maps
+        def build_initial_map(d, preferred: dict):
+            imap = {}
+            for canonical in d.keys():
+                if not canonical:
+                    continue
+                initial = canonical[0].upper()
+                imap.setdefault(initial, []).append(canonical)
+            # Apply preferences
+            if preferred:
+                for k, v in preferred.items():
+                    # v may be a list of preferred names by order
+                    imap.setdefault(k, [])
+                    v_list = v if isinstance(v, list) else [v]
+                    # Remove any occurrences and insert in order at the front
+                    for name in reversed(v_list):
+                        if name in imap[k]:
+                            imap[k].remove(name)
+                        imap[k].insert(0, name)
+            return imap
+        # Load external preferences if available
+        try:
+            from ..data.dicts.initials_preferences import INITIALS_PREFERENCES
+            ru_pref = INITIALS_PREFERENCES.get('ru', {})
+            uk_pref = INITIALS_PREFERENCES.get('uk', {})
+        except Exception:
+            ru_pref = {}
+            uk_pref = {}
+        self._initial_maps = {
+            'uk': build_initial_map(UK_NAMES, uk_pref),
+            'ru': build_initial_map(RU_NAMES, ru_pref)
+        }
+
+        # Surname heuristics for Ukrainian (include genitive/oblique forms)
+        self._uk_surname_suffixes = (
+            'енко', 'енка',  # -enko nominative/genitive
+            'чук', 'чука',   # -chuk
+            'юк', 'юка',     # -yuk
+            'ук', 'ука',     # -uk
+            'ський', 'ського',
+            'цький', 'цького',
+            'зький', 'зького',
+            'ский', 'ского',
+            'ко', 'ка'       # -ko, -ka (oblique)
+        )
+
+        # Load optional stop-words dictionary from data if present
+        try:
+            from ..data.dicts.stop_words import STOP_WORDS as _SW
+            self._stop_words = _SW
+        except Exception:
+            self._stop_words = {
+                'ru': {'платеж', 'оплата', 'перевод', 'от', 'для'},
+                'uk': {'платіж', 'оплата', 'переказ', 'від', 'для'}
+            }
+
+    def _heuristic_name_language(self, first: str, last: str, default: str) -> str:
+        """Heuristically choose name language using characters and surname endings."""
+        if any(ch in last for ch in 'іїєґІЇЄҐ') or any(ch in first for ch in 'іїєґІЇЄҐ'):
+            return 'uk'
+        if any(ch in last for ch in 'ёъыэЁЪЫЭ') or any(ch in first for ch in 'ёъыэЁЪЫЭ'):
+            return 'ru'
+        if last.lower().endswith(self._uk_surname_suffixes):
+            return 'uk'
+        return default if default in ('ru','uk','en') else 'uk'
+
+    def _to_nominative(self, word: str, lang: str) -> str:
+        """Convert a single word to nominative case using pymorphy3 if possible."""
+        try:
+            from pymorphy3 import MorphAnalyzer
+            morph = MorphAnalyzer(lang='uk' if lang == 'uk' else 'ru')
+            parsed = morph.parse(word)
+            if parsed:
+                form = parsed[0].inflect({'nomn'})
+                if form and form.word:
+                    return form.word.capitalize()
+                # fallback to normal form
+                normal = parsed[0].normal_form
+                return str(normal).capitalize()
+        except Exception:
+            pass
+        return word
+
+    def _canonicalize_name_phrase(self, name_text: str, default_lang: str) -> Optional[str]:
+        """Return canonical 'First Last' in nominative with diminutives mapped to canonical names."""
+        if not name_text:
+            return None
+        # Keep only letters, apostrophes and hyphens/spaces
+        import re
+        parts = re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґ\'-]+", name_text)
+        if not parts:
+            return None
+        # Choose best guess for first/last order
+        # Prefer token that matches known given-name dictionaries as the first name
+        # Use built canonical maps (include variants/diminutives/declensions)
+        known_firsts = set(self._canonical_maps.get('uk', {}).keys()) | set(self._canonical_maps.get('ru', {}).keys())
+        first_token = parts[0]
+        last_token = parts[-1] if len(parts) > 1 else ''
+        if len(parts) >= 2:
+            a, b = parts[0], parts[-1]
+            if (b.lower() in known_firsts) and (a.lower() not in known_firsts):
+                # Swap order: looks like 'Surname Firstname'
+                first_token, last_token = b, a
+        
+        first = first_token
+        last = last_token
+
+        # Choose language heuristically to prefer UK when appropriate
+        lang = self._heuristic_name_language(first, last, default_lang)
+        cmap = self._canonical_maps.get(lang, {})
+
+        # If first token is an initial like "П" or "П.", expand via initial map
+        if re.fullmatch(r"[A-Za-zА-ЯІЇЄҐ]\.?", first):
+            initial = first[0].upper()
+            cand_list = self._initial_maps.get(lang, {}).get(initial, [])
+            if not cand_list and lang == 'uk':
+                cand_list = self._initial_maps.get('ru', {}).get(initial, [])
+            if cand_list:
+                canon_first = cand_list[0]
+                canon_last = self._to_nominative(last, lang) if last else ''
+                canon_first = canon_first[:1].upper() + canon_first[1:]
+                canon_last = canon_last[:1].upper() + canon_last[1:] if canon_last else ''
+                return (canon_first + (' ' + canon_last if canon_last else '')).strip()
+
+        # Map first name via dictionary (diminutives/variants/declensions) pre-nominative
+        dict_mapped = first.lower() in cmap
+        canon_first = cmap.get(first.lower(), first)
+        # Ensure nominative case for first only if not already dictionary-mapped
+        if not dict_mapped:
+            canon_first = self._to_nominative(canon_first, lang)
+        # Try mapping again after nominative (handles genitive diminutives -> base)
+        post_map = cmap.get(canon_first.lower())
+        if not post_map and lang == 'uk':
+            # Fallback to RU map if needed (e.g. diminutive in RU form)
+            post_map = self._canonical_maps.get('ru', {}).get(canon_first.lower())
+        if post_map:
+            canon_first = post_map
+        canon_last = self._to_nominative(last, lang) if last else ''
+        # Gender-based surname fix (e.g., ФОП Павлова Дарья -> Дарья Павлова)
+        gender = self._name_genders.get(lang, {}).get(canon_first) or self._name_genders.get('ru', {}).get(canon_first)
+        if gender and canon_last:
+            canon_last = self._fix_surname_gender(canon_last, gender, lang)
+
+        # Title case consistently
+        canon_first = canon_first[:1].upper() + canon_first[1:]
+        canon_last = canon_last[:1].upper() + canon_last[1:] if canon_last else ''
+
+        return (canon_first + (' ' + canon_last if canon_last else '')).strip()
+
+    def _fix_surname_gender(self, last: str, gender: str, lang: str) -> str:
+        if not last or not gender:
+            return last
+        low = last.lower()
+        # Russian feminine endings
+        if lang == 'ru' and gender == 'femn':
+            mapping = [
+                ('ский', 'ская'), ('цкий', 'цкая'), ('зкий', 'зкая'),
+                ('ов', 'ова'), ('ев', 'ева'), ('ин', 'ина'), ('ын', 'ына')
+            ]
+            for src, dst in mapping:
+                if low.endswith(src):
+                    base = last[:-len(src)]
+                    repl = dst.capitalize() if last[-len(src):].istitle() else dst
+                    return base + repl
+        # Ukrainian common surname adjectives
+        if lang == 'uk' and gender == 'femn':
+            mapping = [('ський', 'ська'), ('цький', 'цька'), ('зький', 'зька')]
+            for src, dst in mapping:
+                if low.endswith(src):
+                    base = last[:-len(src)]
+                    repl = dst.capitalize() if last[-len(src):].istitle() else dst
+                    return base + repl
+        return last
+
+    def _extract_payment_context_name(self, text: str, language: str) -> Optional[str]:
+        """Use PatternService to extract a likely name from payment context."""
+        try:
+            # Try with detected language first
+            patterns = self.pattern_service.generate_patterns(text, language)
+            # Prefer payment_context patterns
+            ctx = [p for p in patterns if getattr(p, 'pattern_type', '') == 'payment_context']
+            if not ctx:
+                # Fallback: try the other Slavic language to handle mixed texts
+                alt_lang = 'ru' if language == 'uk' else 'uk'
+                patterns_alt = self.pattern_service.generate_patterns(text, alt_lang)
+                ctx = [p for p in patterns_alt if getattr(p, 'pattern_type', '') == 'payment_context']
+            if not ctx:
+                # Last fallback: auto-detect inside PatternService
+                patterns_auto = self.pattern_service.generate_patterns(text, 'auto')
+                ctx = [p for p in patterns_auto if getattr(p, 'pattern_type', '') == 'payment_context']
+            if not ctx:
+                return None
+            # Choose the longest extracted pattern as best candidate
+            best = max(ctx, key=lambda p: (len(p.pattern or ''), p.confidence))
+            return best.pattern
+        except Exception:
+            return None
+
+    def _strip_stop_words(self, text: str, language: str) -> str:
+        """Remove known stop words around the possible name region."""
+        import re
+        sw = set(self._stop_words.get(language, []))
+        # For Slavic texts, union RU and UK to handle mixed phrasing like "платеж від" etc.
+        if language in ('ru', 'uk'):
+            sw = sw.union(self._stop_words.get('ru', set())).union(self._stop_words.get('uk', set()))
+        # Add long legal phrases (not part of normalized names)
+        try:
+            from ..data.dicts.company_triggers import COMPANY_TRIGGERS
+            for lang in ('ru','uk','en'):
+                for phrase in COMPANY_TRIGGERS.get(lang, {}).get('long_phrases', []):
+                    sw.add(phrase.lower())
+        except Exception:
+            pass
+        if not text or not sw:
+            return text
+        tokens = re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґ\'-]+", text)
+        # Remove leading/trailing stop words
+        while tokens and tokens[0].lower() in sw:
+            tokens.pop(0)
+        while tokens and tokens[-1].lower() in sw:
+            tokens.pop()
+        return ' '.join(tokens)
+
+    def _maybe_reverse_transliterate(self, text: str, detected_lang: str) -> str:
+        """Detect romanized Slavic phrases and convert to Cyrillic before processing.
+
+        Heuristics: looks for common romanized payment/context words and Slavic digraphs.
+        Chooses 'uk' if 'vid'/'perekaz'/'platizh' present; 'ru' if 'ot'/'dlya'/'perevod' present.
+        """
+        import re
+        t = text or ''
+        low = t.lower()
+        # Quick romanized indicators
+        roman_signals = ['oplata', 'platezh', 'perevod', 'perekaz', 'vid', 'ot', 'dlya', 'na imya', 'na imia']
+        if not any(sig in low for sig in roman_signals):
+            return t
+        # Determine target language
+        target = 'uk' if any(x in low for x in ['vid', 'perekaz', 'platizh']) else 'ru'
+        # Ordered digraph mapping (target-dependent where needed)
+        digraphs_common = [
+            ('shch', 'щ'), ('sch', 'щ'),
+            ('dzh', 'дж'), ('dz', 'дз'),
+            ('cz', 'ч'), ('sz', 'ш'), ('rz', 'ж'),
+            ('yo', 'ё'), ('jo', 'ё'),
+            ('zh', 'ж'), ('kh', 'х'), ('ch', 'ч'), ('sh', 'ш'),
+            ('yu', 'ю'), ('ju', 'ю'), ('ya', 'я'), ('ja', 'я'),
+            ('ts', 'ц')
+        ]
+        digraphs_uk = [('ye', 'є'), ('yi', 'ї'), ('ii', 'ії')]
+        digraphs_ru = [('ye', 'е')]
+        single = {
+            'a':'а','b':'б','v':'в','g':'г','d':'д','e':'е','z':'з','i':'и','y':'ы','j':'й','k':'к','l':'л','m':'м','n':'н','o':'о','p':'п','r':'р','s':'с','t':'т','u':'у','f':'ф','h':'х','c':'к','q':'к','x':'кс','w':'в'
+        }
+        # Special words map (contexts)
+        specials = {
+            'oplata': 'оплата', 'platezh': 'платеж', 'perevod': 'перевод', 'perekaz': 'переказ',
+            'vid': 'від', 'ot': 'от', 'dlya': 'для', 'na imya': 'на имя', 'na imia': 'на імʼя'
+        }
+        # Phrase-level replacements on the whole string
+        for k,v in specials.items():
+            t = re.sub(rf'\b{re.escape(k)}\b', v, t, flags=re.IGNORECASE)
+        # Work on tokens to preserve casing roughly
+        def translit_token(tok: str) -> str:
+            s = tok
+            # Apply digraphs
+            for a,b in digraphs_common + (digraphs_uk if target=='uk' else digraphs_ru):
+                s = re.sub(a, b, s, flags=re.IGNORECASE)
+            # Single letters
+            res = ''
+            i=0
+            while i < len(s):
+                ch = s[i]
+                lo = ch.lower()
+                if lo in single:
+                    cy = single[lo]
+                    cy = cy.upper() if ch.isupper() else cy
+                    res += cy
+                else:
+                    res += ch
+                i+=1
+            return res
+        # Split on whitespace, transliterate only ASCII words
+        out_tokens = []
+        for tok in t.split():
+            if re.fullmatch(r'[A-Za-z\-]+', tok):
+                lk = tok.lower()
+                if lk in specials:
+                    out_tokens.append(specials[lk])
+                else:
+                    out_tokens.append(translit_token(tok))
+            else:
+                out_tokens.append(tok)
+        return ' '.join(out_tokens)
+
+    def _extract_company_context_name(self, text: str, language: str) -> Optional[str]:
+        """Extract company name from payment/recipient context."""
+        try:
+            patterns = self.pattern_service.generate_patterns(text, language)
+            comps = [p for p in patterns if getattr(p, 'pattern_type', '') == 'company_context']
+            def _not_just_marker(pat: str) -> bool:
+                try:
+                    from ..data.dicts.company_triggers import COMPANY_TRIGGERS
+                    legal = set(COMPANY_TRIGGERS.get('ru', {}).get('legal_entities', [])) | \
+                            set(COMPANY_TRIGGERS.get('uk', {}).get('legal_entities', []))
+                    return pat.lower() not in legal
+                except Exception:
+                    return True if len(pat) > 4 else False
+            comps = [p for p in comps if _not_just_marker(p.pattern or '')]
+            if not comps:
+                # Try alternative language
+                alt_lang = 'ru' if language == 'uk' else 'uk'
+                comps = [p for p in self.pattern_service.generate_patterns(text, alt_lang)
+                        if getattr(p, 'pattern_type', '') == 'company_context']
+                comps = [p for p in comps if _not_just_marker(p.pattern or '')]
+            if not comps:
+                # Last fallback
+                comps = [p for p in self.pattern_service.generate_patterns(text, 'auto')
+                        if getattr(p, 'pattern_type', '') == 'company_context']
+                comps = [p for p in comps if _not_just_marker(p.pattern or '')]
+            if not comps:
+                return None
+            best = max(comps, key=lambda p: (len(p.pattern or ''), p.confidence))
+            return best.pattern
+        except Exception:
+            return None
+
+    def _normalize_company_name(self, text: str, language: str) -> str:
+        """Normalize company name: drop doc tails, keep legal entity prefix and core name."""
+        import re
+        s = text or ''
+        # Remove trailing contract/date/number tails
+        s = re.split(r'\b(по\s+договор[ау]|догов[оі]р[ау]?|контракт[ау]?|№|#|от\s+\d|від\s+\d)', s, maxsplit=1)[0]
+        s = re.sub(r'\s+', ' ', s).strip()
+        # Remove enclosing quotes
+        s = re.sub(r'^["«»\']\s*|\s*["«»\']$', '', s)
+        # Drop legal entity markers (abbrev) and long phrases
+        try:
+            from ..data.dicts.company_triggers import COMPANY_TRIGGERS
+            legal = set()
+            long_phrases = []
+            for lang in ('ru','uk','en'):
+                data = COMPANY_TRIGGERS.get(lang, {})
+                legal.update([x.lower() for x in data.get('legal_entities', [])])
+                long_phrases.extend([x.lower() for x in data.get('long_phrases', [])])
+            # Optionally keep abbreviations
+            if not SERVICE_CONFIG.keep_legal_entity_prefix:
+                parts = s.split()
+                while parts and parts[0].lower().strip('."«»”') in legal:
+                    parts.pop(0)
+                s = ' '.join(parts)
+            # Remove long phrases anywhere at start regardless
+            for phrase in long_phrases:
+                s = re.sub(rf'^(?:{re.escape(phrase)})\s+', '', s, flags=re.IGNORECASE)
+        except Exception:
+            pass
+        return s.strip()
     
     async def process_text(
         self,
@@ -172,8 +577,11 @@ class OrchestratorService:
             self.logger.info(f"Language detected before normalization: {language} (confidence: {language_confidence:.2f})")
                                                         
             
-            # 2. Unicode normalization AFTER language detection
-            unicode_result = self.unicode_service.normalize_text(text, aggressive=False)
+            # 1.1 Handle romanized Slavic texts: e.g., 'Oplata vid Petro Poroshenko'
+            text_for_processing = self._maybe_reverse_transliterate(text, language)
+
+            # 2. Unicode normalization AFTER language detection (possibly after reverse transliteration)
+            unicode_result = self.unicode_service.normalize_text(text_for_processing, aggressive=False)
             normalized_text = unicode_result['normalized']
             
             # 3. Text normalization - EXPLICITLY pass detected language
@@ -202,6 +610,68 @@ class OrchestratorService:
                 )
             
             final_normalized = getattr(norm_result, 'normalized', normalized_text)
+
+            # 3.1 Domain-specific: extract and canonicalize names from payment context
+            # Try extracting a name candidate directly
+            candidate = self._extract_payment_context_name(text_for_processing, language)
+            # If not found, try again after stripping stop words
+            if not candidate:
+                stripped = self._strip_stop_words(text_for_processing, language)
+                if stripped and stripped != text:
+                    candidate = self._extract_payment_context_name(stripped, language)
+            if candidate:
+                try:
+                    # Try canonicalization with detected language
+                    canonical_primary = self._canonicalize_name_phrase(candidate, language)
+                    # Heuristic force to 'uk' if surname looks Ukrainian
+                    import re as __re
+                    parts = __re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґ\'-]+", candidate)
+                    last_tok = parts[-1] if len(parts) > 1 else ''
+                    uk_force = False
+                    if last_tok:
+                        last_low = last_tok.lower()
+                        if last_low.endswith(self._uk_surname_suffixes):
+                            uk_force = True
+                    canonical_uk = self._canonicalize_name_phrase(candidate, 'uk') if uk_force else None
+                    canonical = canonical_uk or canonical_primary
+                    if canonical:
+                        final_normalized = canonical
+                        self.logger.info(f"Canonicalized payment name: '{candidate}' -> '{final_normalized}'")
+                except Exception as e:
+                    self.logger.debug(f"Name canonicalization skipped: {e}")
+
+            # 3.2 Companies and FOP/IP cases
+            # If text mentions individual entrepreneur (FOP/IP), treat as person: strip marker and canonicalize
+            import re as _re
+            if _re.search(r'\b(фоп|ип|fop|ip)\b', text_for_processing, _re.IGNORECASE):
+                # Take the tail after marker
+                m = _re.search(r'\b(?:фоп|ип|fop|ip)\b\s*(.+)$', text_for_processing, _re.IGNORECASE)
+                if m:
+                    fop_tail = m.group(1).strip()
+                    pers = self._canonicalize_name_phrase(fop_tail, language)
+                    if pers:
+                        final_normalized = pers
+                        self.logger.info(f"Canonicalized FOP/IP person: '{fop_tail}' -> '{final_normalized}'")
+            else:
+                # Try to extract a company name if no FOP/IP
+                comp = self._extract_company_context_name(text_for_processing, language)
+                if not comp:
+                    stripped = self._strip_stop_words(text_for_processing, language)
+                    if stripped and stripped != text_for_processing:
+                        comp = self._extract_company_context_name(stripped, language)
+                if comp:
+                    company_norm = self._normalize_company_name(comp, language)
+                    if company_norm and len(company_norm) > 1:
+                        # SmartFilter routing: if both person and company exist, choose per config
+                        if candidate and SERVICE_CONFIG.smart_filter_routing:
+                            if SERVICE_CONFIG.prefer_company_when_both:
+                                final_normalized = company_norm
+                                self.logger.info(f"SmartFilter routed to COMPANY: '{comp}' -> '{final_normalized}'")
+                            else:
+                                self.logger.info(f"SmartFilter kept PERSON over COMPANY: '{candidate}' vs '{company_norm}'")
+                        else:
+                            final_normalized = company_norm
+                            self.logger.info(f"Detected company: '{comp}' -> '{final_normalized}'")
             
             # 4. Variant generation (optimized logic)
             variants = []
@@ -226,12 +696,17 @@ class OrchestratorService:
             # 6. Generate embeddings (if needed)
             embeddings = None
             if generate_embeddings:
-                embedding_result = self.embedding_service.get_embeddings(
-                    [final_normalized],
-                    normalize=True
-                )
-                if embedding_result.get('success'):
-                    embeddings = embedding_result['embeddings']
+                try:
+                    embedding_result = self.embedding_service.get_embeddings(
+                        [final_normalized],
+                        normalize=True
+                    )
+                    if embedding_result.get('success'):
+                        embeddings = embedding_result['embeddings']
+                except Exception as ee:
+                    # Do not fail entire pipeline if embeddings unavailable
+                    self.logger.warning(f"Embedding generation skipped: {ee}")
+                    embeddings = None
             
             # Form result
             processing_time = (datetime.now() - start_time).total_seconds()

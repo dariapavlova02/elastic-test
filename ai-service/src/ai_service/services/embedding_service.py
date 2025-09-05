@@ -3,7 +3,10 @@ Service for obtaining sentence embeddings
 """
 
 import logging
-import numpy as np
+try:
+    import numpy as np  # Optional
+except Exception:
+    np = None
 from typing import Dict, List, Optional, Union, Any
 from datetime import datetime
 import time
@@ -113,8 +116,7 @@ class EmbeddingService:
             )
             
             # Convert to list if needed
-            if isinstance(embeddings, np.ndarray):
-                # Ensure embeddings is a list
+            if (np is not None) and isinstance(embeddings, np.ndarray):
                 embeddings = embeddings.tolist()
             
             # Calculate metrics
@@ -345,7 +347,9 @@ class EmbeddingService:
     ) -> float:
         """Calculate similarity between two embeddings"""
         try:
-            # Convert to numpy arrays
+            if np is None:
+                # Cannot compute without numpy
+                return 0.0
             emb1 = np.array(embedding1)
             emb2 = np.array(embedding2)
             
@@ -384,7 +388,8 @@ class EmbeddingService:
     def get_embedding_statistics(self, embeddings: List[List[float]]) -> Dict[str, Any]:
         """Calculate embedding statistics"""
         try:
-            # Convert to numpy array
+            if np is None:
+                return {}
             embeddings_array = np.array(embeddings)
             
             stats = {

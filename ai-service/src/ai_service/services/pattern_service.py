@@ -90,21 +90,90 @@ class PatternService:
             }
         }
         
-        # Payment context patterns
-        self.payment_patterns = {
-            'ru': [
-                r'оплата\s+від\s+([А-ЯІЇЄ][а-яіїє]+(?:\s+[А-ЯІЇЄ][а-яіїє]+)*)',
-                r'оплата\s+для\s+([А-ЯІЇЄ][а-яіїє]+(?:\s+[А-ЯІЇЄ][а-яіїє]+)*)',
-                r'від\s+([А-ЯІЇЄ][а-яіїє]+(?:\s+[А-ЯІЇЄ][а-яіїє]+)*)',
-                r'для\s+([А-ЯІЇЄ][а-яіїє]+(?:\s+[А-ЯІЇЄ][а-яіїє]+)*)'
-            ],
-            'uk': [
-                r'оплата\s+від\s+([А-ЯІЇЄ][а-яіїє]+(?:\s+[А-ЯІЇЄ][а-яіїє]+)*)',
-                r'оплата\s+для\s+([А-ЯІЇЄ][а-яіїє]+(?:\s+[А-ЯІЇЄ][а-яіїє]+)*)',
-                r'від\s+([А-ЯІЇЄ][а-яіїє]+(?:\s+[А-ЯІЇЄ][а-яіїє]+)*)',
-                r'для\s+([А-ЯІЇЄ][а-яіїє]+(?:\s+[А-ЯІЇЄ][а-яіїє]+)*)'
-            ]
-        }
+        # Payment context patterns are built from external triggers
+        self.payment_patterns = {'ru': [], 'uk': [], 'en': []}
+        try:
+            from ..data.dicts.payment_triggers import build_trigger_regex
+            from ..data.dicts.company_triggers import COMPANY_TRIGGERS
+            for lang in ('ru', 'uk', 'en'):
+                tr = build_trigger_regex(lang)
+                # Basic patterns
+                if lang == 'en':
+                    name = r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})'
+                    init_surname = r'([A-Z])\.?\s*([A-Z][a-z]+)'
+                    context = tr.get('context', r'(?:payment|transfer|remittance)')
+                    preps = tr.get('preps', r'(?:from|for|to)')
+                else:
+                    name = r'([А-ЯЁІЇЄҐ][а-яёіїєґ\'-]+(?:\s+[А-ЯЁІЇЄҐ][а-яёіїєґ\'-]+){0,3})'
+                    init_surname = r'([А-ЯЁІЇЄҐ])\.?\s*([А-ЯЁІЇЄҐ][а-яёіїєґ\'-]+)'
+                    context = tr.get('context', r'(?:платеж|оплата|перевод)')
+                    preps = tr.get('preps', r'(?:от|для)')
+
+                patterns = [
+                    rf'{context}[\s,:;-]*{preps}[\s,:;-]*{name}',
+                    rf'\b{preps}[\s,:;-]*{name}',
+                    rf'{context}[\s,:;-]*{preps}[\s,:;-]*{init_surname}',
+                    # Recipient/sender first
+                    rf'(?:получатель|одержувач)[\s:,-]*{name}',
+                    rf'(?:получатель|одержувач)[\s:,-]*{init_surname}',
+                    # “on behalf/name” style
+                    rf'(?:на\s+имя|на\s+ім[\'ʼ]я)[\s,:;-]*{name}',
+                ]
+                self.payment_patterns[lang] = patterns
+            # Build company context patterns
+            self.company_patterns = {'ru': [], 'uk': [], 'en': []}
+            for lang in ('ru', 'uk', 'en'):
+                tr = build_trigger_regex(lang)
+                legal = COMPANY_TRIGGERS.get(lang, {}).get('legal_entities', [])
+                if legal:
+                    legal_alt = r'(?:' + '|'.join(re.escape(le) for le in legal) + r')'
+                else:
+                    legal_alt = r'(?:ООО|ТОВ|ПП|ЗАО|ПАО|ОАО|АТ|ПрАТ|ФОП|ИП)'
+                # Company name core: quoted or multi-token uppercase-ish words
+                comp_core = r'(?:["“«][^"”»\n]{2,}["”»]|[A-ZА-ЯІЇЄҐ0-9][\w\-]+(?:\s+(?:[a-zа-яіїєґ]{1,5}|[A-ZА-ЯІЇЄҐ0-9][\w\-]+)){0,6})'
+                comp_name = rf'({comp_core})(?=$|\s|["»”])'
+                if lang == 'en':
+                    preps = tr.get('preps', r'(?:from|for|to)')
+                    context = tr.get('context', r'(?:payment|transfer|remittance|funds|money|credit|debit|incoming)')
+                else:
+                    preps = tr.get('preps', r'(?:от|для|від)')
+                    context = tr.get('context', r'(?:платеж|оплата|перевод|переказ)')
+                self.company_patterns[lang] = [
+                    rf'{context}[\s,:;-]*{preps}[\s,:;-]*(?:{legal_alt}[\s\.]+)?{comp_name}',
+                    rf'\b(?:получатель|одержувач|beneficiary|recipient)[:\s,-]*(?:{legal_alt}[\s\.]+)?{comp_name}',
+                    rf'(?:на\s+имя|на\s+ім[\'ʼ]я|on\s+behalf\s+of)[\s,:;-]*(?:{legal_alt}[\s\.]+)?{comp_name}',
+                    rf'\b(?:{legal_alt})[\s\.]+{comp_name}'
+                ]
+        except Exception:
+            # Fallback simple patterns if triggers are not available
+            self.payment_patterns = {
+                'ru': [
+                    r'(?:платеж|оплата|перевод)[\s,:;-]*(?:от|для)[\s,:;-]*([А-ЯЁІЇЄҐ][а-яёіїєґ\'-]+(?:\s+[А-ЯЁІЇЄҐ][а-яёіїєґ\'-]+){0,3})',
+                    r'\b(?:от|для)[\s,:;-]*([А-ЯЁІЇЄҐ][а-яёіїєґ\'-]+(?:\s+[А-ЯЁІЇЄҐ][а-яёіїєґ\'-]+){0,3})'
+                ],
+                'uk': [
+                    r'(?:платіж|оплата|переказ)[\s,:;-]*(?:від|для)[\s,:;-]*([А-ЯІЇЄҐ][а-яіїєґ\'-]+(?:\s+[А-ЯІЇЄҐ][а-яіїєґ\'-]+){0,3})',
+                    r'\b(?:від|для)[\s,:;-]*([А-ЯІЇЄҐ][а-яіїєґ\'-]+(?:\s+[А-ЯІЇЄҐ][а-яіїєґ\'-]+){0,3})'
+                ],
+                'en': [
+                    r'(?:payment|transfer|remittance)[\s,:;-]*(?:from|for|to)[\s,:;-]*([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})',
+                    r'\b(?:from|for|to)[\s,:;-]*([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})'
+                ]
+            }
+
+        # Optional custom stop-words per language (loaded if provided by user)
+        try:
+            from ..data.dicts.stop_words import STOP_WORDS as _USER_STOP_WORDS
+            self.stop_words = _USER_STOP_WORDS
+        except Exception:
+            # Default stop words + legal phrases that should be dropped
+            self.stop_words = {
+                'ru': { 'платеж', 'оплата', 'перевод', 'перечисление', 'зачисление', 'списание', 'от', 'для',
+                        'общество с ограниченной ответственностью', 'компания', 'товарищество' },
+                'uk': { 'платіж', 'оплата', 'переказ', 'перерахування', 'зарахування', 'списання', 'від', 'для',
+                        'товариство з обмеженою відповідальністю', 'компанія' },
+                'en': { 'payment', 'transfer', 'remittance', 'from', 'for', 'to', 'limited liability company', 'company' }
+            }
         
         self.logger.info("PatternService initialized")
     
@@ -140,6 +209,11 @@ class PatternService:
         context_patterns = self._extract_payment_context_patterns(text, language)
         patterns.extend(context_patterns)
         
+        # 2b. Company context patterns
+        if hasattr(self, 'company_patterns'):
+            company_patterns = self._extract_company_context_patterns(text, language)
+            patterns.extend(company_patterns)
+        
         # 3. Dictionary patterns
         dict_patterns = self._extract_dictionary_name_patterns(text, language)
         patterns.extend(dict_patterns)
@@ -169,6 +243,41 @@ class PatternService:
                 unique_patterns.append(pattern)
         
         return unique_patterns
+    
+    def _extract_company_context_patterns(self, text: str, language: str) -> List[NamePattern]:
+        """Extract company context patterns"""
+        patterns = []
+        comp_patterns = getattr(self, 'company_patterns', {}).get(language)
+        if not comp_patterns:
+            return patterns
+        
+        for regex in comp_patterns:
+            matches = re.finditer(regex, text, re.IGNORECASE)
+            for m in matches:
+                # Company name often captured in the last group
+                name_text = None
+                if m.lastindex:
+                    for gi in range(m.lastindex, 0, -1):
+                        g = m.group(gi)
+                        if g and len(g.strip()) > 0:
+                            name_text = g
+                            break
+                if not name_text:
+                    continue
+                cleaned = re.sub(r'^["«»\']\s*|\s*["«»\']$', '', name_text.strip())
+                cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+                if len(cleaned) < 2:
+                    continue
+                pattern = NamePattern(
+                    pattern=cleaned,
+                    pattern_type='company_context',
+                    language=language,
+                    confidence=0.85,
+                    source='company_context',
+                    created_at=datetime.now().isoformat()
+                )
+                patterns.append(pattern)
+        return patterns
     
     def _extract_basic_name_patterns(self, text: str, language: str) -> List[NamePattern]:
         """Extract basic name patterns"""
@@ -229,24 +338,59 @@ class PatternService:
         
         for regex in self.payment_patterns[language]:
             matches = re.finditer(regex, text, re.IGNORECASE)
-            
+
             for match in matches:
-                if match.group(1):  # Group with name
-                    name_text = match.group(1).strip()
-                    
-                    # Check if extracted text looks like a name
-                    if self._looks_like_name(name_text, language):
-                        pattern = NamePattern(
-                            pattern=name_text,
-                            pattern_type='payment_context',
-                            language=language,
-                            confidence=0.9,
-                            source='payment_context',
-                            created_at=datetime.now().isoformat()
-                        )
-                        patterns.append(pattern)
+                # Support both variants: only name or initial+surname
+                if match.group(1) and not match.lastindex or (match.lastindex and match.lastindex == 1):
+                    raw = match.group(1)
+                    name_text = self._strip_stop_words(raw.strip(), language)
+                elif match.lastindex and match.lastindex >= 2 and match.group(1) and match.group(2):
+                    initial = match.group(1).strip()
+                    surname = match.group(2).strip()
+                    name_text = f"{initial}. {surname}"
+                else:
+                    continue
+
+                # Heuristic: allow multiword names or initials+surname
+                tokens = re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґ\'-]+", name_text)
+                ok = False
+                if len(tokens) >= 2:
+                    if self._looks_like_name(tokens[0], language) or self._looks_like_name(tokens[1], language):
+                        ok = True
+                elif len(tokens) == 1:
+                    ok = self._looks_like_name(tokens[0], language)
+
+                if ok:
+                    pattern = NamePattern(
+                        pattern=name_text,
+                        pattern_type='payment_context',
+                        language=language,
+                        confidence=0.9,
+                        source='payment_context',
+                        created_at=datetime.now().isoformat()
+                    )
+                    patterns.append(pattern)
         
         return patterns
+
+    def _strip_stop_words(self, text: str, language: str) -> str:
+        """Remove configured stop words from boundaries of the text."""
+        if not text:
+            return text
+        sw = set(self.stop_words.get(language, []))
+        if not sw:
+            return text
+        tokens = re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґ\'-]+", text)
+        if not tokens:
+            return text
+        # Drop leading stop-words
+        while tokens and tokens[0].lower() in sw:
+            tokens.pop(0)
+        # Drop trailing stop-words
+        while tokens and tokens[-1].lower() in sw:
+            tokens.pop()
+        cleaned = ' '.join(tokens)
+        return cleaned.strip()
     
     def _extract_dictionary_name_patterns(self, text: str, language: str) -> List[NamePattern]:
         """Extract patterns from name dictionaries"""

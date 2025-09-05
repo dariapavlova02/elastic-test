@@ -8,7 +8,10 @@ import logging
 from typing import Dict, List, Optional, Union, Any
 from dataclasses import dataclass, asdict
 from datetime import datetime
-import numpy as np
+try:
+    import numpy as np  # Optional
+except Exception:
+    np = None
 
 # Add path for imports
 import sys
@@ -69,11 +72,14 @@ class EntityTemplate:
         
         # Convert numpy arrays to lists
         if self.embeddings is not None:
-            if isinstance(self.embeddings, np.ndarray):
+            if np is not None and isinstance(self.embeddings, np.ndarray):
                 result['embeddings'] = self.embeddings.tolist()
             elif isinstance(self.embeddings, list):
                 # If it's a list of numpy arrays
-                result['embeddings'] = [emb.tolist() if isinstance(emb, np.ndarray) else emb for emb in self.embeddings]
+                if np is not None:
+                    result['embeddings'] = [emb.tolist() if isinstance(emb, np.ndarray) else emb for emb in self.embeddings]
+                else:
+                    result['embeddings'] = self.embeddings
         
         return result
     

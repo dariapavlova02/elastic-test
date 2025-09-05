@@ -40,7 +40,7 @@ class ElasticsearchClient:
             raise
     
     def index_document(self, index_name: str, document: Dict[str, Any], 
-                      doc_id: Optional[str] = None) -> Dict[str, Any]:
+                      doc_id: Optional[str] = None, routing: Optional[str] = None) -> Dict[str, Any]:
         """
         Index a document in Elasticsearch.
         
@@ -53,11 +53,15 @@ class ElasticsearchClient:
             Response from Elasticsearch
         """
         try:
-            response = self.client.index(
-                index=index_name,
-                body=document,
-                id=doc_id
-            )
+            kwargs: Dict[str, Any] = {
+                "index": index_name,
+                "body": document
+            }
+            if doc_id is not None:
+                kwargs["id"] = doc_id
+            if routing is not None:
+                kwargs["routing"] = routing
+            response = self.client.index(**kwargs)
             logger.debug(f"Indexed document in {index_name}: {response['_id']}")
             return response
         except TransportError as e:

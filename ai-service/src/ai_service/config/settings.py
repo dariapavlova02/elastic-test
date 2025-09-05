@@ -33,6 +33,10 @@ class ServiceConfig:
     enable_transliterations: bool = True
     preserve_names: bool = True
     clean_unicode: bool = True
+    keep_legal_entity_prefix: bool = False  # Keep legal abbreviations (ООО/ТОВ/LLC) in company names
+    # SmartFilter routing
+    smart_filter_routing: bool = True
+    prefer_company_when_both: bool = True
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
@@ -45,7 +49,8 @@ class ServiceConfig:
             'enable_morphology': self.enable_morphology,
             'enable_transliterations': self.enable_transliterations,
             'preserve_names': self.preserve_names,
-            'clean_unicode': self.clean_unicode
+            'clean_unicode': self.clean_unicode,
+            'keep_legal_entity_prefix': self.keep_legal_entity_prefix
         }
 
 

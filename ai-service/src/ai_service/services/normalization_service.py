@@ -1,6 +1,11 @@
 """
-Text normalization service using SpaCy and NLTK
-for text preparation for search
+Text normalization service using SpaCy and NLTK (optional)
+for text preparation for search.
+
+This module is resilient to missing SpaCy/NLTK. If those libraries or their
+models/data are not available at runtime, it gracefully degrades to simpler
+tokenization and empty stop-word sets, ensuring the AI pipeline still works
+without raising ImportError at import time.
 """
 
 import re
@@ -10,10 +15,27 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union, Any
 from dataclasses import dataclass
 
-import spacy
-from nltk.corpus import stopwords
-from nltk.stem import PorterStemmer, SnowballStemmer
-from nltk.tokenize import word_tokenize
+try:
+    import spacy  # Optional
+    _SPACY_BASE_AVAILABLE = True
+except Exception:
+    spacy = None
+    _SPACY_BASE_AVAILABLE = False
+
+try:
+    import nltk  # Optional
+    # Submodules used if NLTK is present
+    from nltk.corpus import stopwords as _nltk_stopwords
+    from nltk.stem import PorterStemmer as _PorterStemmer, SnowballStemmer as _SnowballStemmer
+    from nltk.tokenize import word_tokenize as _word_tokenize
+    _NLTK_BASE_AVAILABLE = True
+except Exception:
+    nltk = None
+    _nltk_stopwords = None
+    _PorterStemmer = None
+    _SnowballStemmer = None
+    _word_tokenize = None
+    _NLTK_BASE_AVAILABLE = False
 
 from ..config import SERVICE_CONFIG
 from ..exceptions import NormalizationError, LanguageDetectionError
@@ -24,45 +46,54 @@ from .unicode_service import UnicodeService
 # Configure logging
 logger = get_logger(__name__)
 
-# Load SpaCy models
-try:
-    nlp_en = spacy.load("en_core_web_sm")
-    nlp_ru = spacy.load("ru_core_news_sm")
-    nlp_uk = spacy.load("uk_core_news_sm")
-    SPACY_AVAILABLE = True
-except OSError:
-    logger.warning("SpaCy models not available, falling back to NLTK")
+# Load SpaCy models if SpaCy is installed
+if _SPACY_BASE_AVAILABLE:
+    try:
+        nlp_en = spacy.load("en_core_web_sm")
+    except Exception:
+        nlp_en = None
+    try:
+        nlp_ru = spacy.load("ru_core_news_sm")
+    except Exception:
+        nlp_ru = None
+    try:
+        nlp_uk = spacy.load("uk_core_news_sm")
+    except Exception:
+        nlp_uk = None
+    SPACY_AVAILABLE = any([nlp_en, nlp_ru, nlp_uk])
+    if not SPACY_AVAILABLE:
+        logger.warning("SpaCy models not available, falling back to non-SpaCy flow")
+else:
+    nlp_en = nlp_ru = nlp_uk = None
     SPACY_AVAILABLE = False
 
-# Load NLTK data
-try:
-    import nltk
-    import os
-    
-    # Set NLTK data path if not already set
-    if 'NLTK_DATA' not in os.environ:
-        # Check if we're running in Docker or locally
-        if os.path.exists('/app'):
-            os.environ['NLTK_DATA'] = '/app/nltk_data'
-        else:
-            # Local development - use current directory
-            os.environ['NLTK_DATA'] = str(Path.cwd() / 'nltk_data')
-    
-    NLTK_AVAILABLE = True
-except Exception as e:
-    logger.warning(f"NLTK not available: {e}")
+# Load NLTK data if NLTK is installed
+if _NLTK_BASE_AVAILABLE:
+    try:
+        import os
+        # Set NLTK data path if not already set
+        if 'NLTK_DATA' not in os.environ:
+            if os.path.exists('/app'):
+                os.environ['NLTK_DATA'] = '/app/nltk_data'
+            else:
+                os.environ['NLTK_DATA'] = str(Path.cwd() / 'nltk_data')
+        NLTK_AVAILABLE = True
+    except Exception as e:
+        logger.warning(f"NLTK data path setup failed: {e}")
+        NLTK_AVAILABLE = True  # Base is available; data may be downloaded lazily
+else:
     NLTK_AVAILABLE = False
 
 # Initialize stemmers
-if NLTK_AVAILABLE:
-    porter_stemmer = PorterStemmer()
-    snowball_ru = SnowballStemmer('russian')
-    # Ukrainian is not supported by NLTK SnowballStemmer, use Russian as fallback
+if NLTK_AVAILABLE and _PorterStemmer and _SnowballStemmer:
+    porter_stemmer = _PorterStemmer()
+    snowball_ru = _SnowballStemmer('russian')
+    # Ukrainian is not supported by NLTK SnowballStemmer in some builds, use Russian as fallback
     try:
-        snowball_uk = SnowballStemmer('ukrainian')
-    except ValueError:
+        snowball_uk = _SnowballStemmer('ukrainian')
+    except Exception:
         logger.warning("Ukrainian stemmer not available, using Russian as fallback")
-        snowball_uk = snowball_ru  # Fallback to Russian stemmer
+        snowball_uk = snowball_ru
 else:
     porter_stemmer = None
     snowball_ru = None
@@ -102,17 +133,18 @@ class NormalizationService:
             # Language-specific settings
             self.language_configs = {
                 'en': {
-                    'stop_words': set(stopwords.words('english')) if NLTK_AVAILABLE else set(),
+                    'stop_words': set(_nltk_stopwords.words('english')) if (NLTK_AVAILABLE and _nltk_stopwords) else set(),
                     'stemmer': porter_stemmer if NLTK_AVAILABLE else None,
                     'spacy_model': nlp_en if SPACY_AVAILABLE else None
                 },
                 'ru': {
-                    'stop_words': set(stopwords.words('russian')) if NLTK_AVAILABLE else set(),
+                    'stop_words': set(_nltk_stopwords.words('russian')) if (NLTK_AVAILABLE and _nltk_stopwords) else set(),
                     'stemmer': snowball_ru if NLTK_AVAILABLE else None,
                     'spacy_model': nlp_ru if SPACY_AVAILABLE else None
                 },
                 'uk': {
-                    'stop_words': set(stopwords.words('russian')) if NLTK_AVAILABLE else set(),  # Use Russian as fallback
+                    # TODO: add ukrainian stop words; fallback to Russian if available
+                    'stop_words': set(_nltk_stopwords.words('russian')) if (NLTK_AVAILABLE and _nltk_stopwords) else set(),
                     'stemmer': snowball_uk if NLTK_AVAILABLE else None,
                     'spacy_model': nlp_uk if SPACY_AVAILABLE else None
                 }
@@ -198,9 +230,9 @@ class NormalizationService:
             self.logger.warning(f"SpaCy tokenization failed: {e}")
         
         # Fallback to NLTK
-        if NLTK_AVAILABLE:
+        if NLTK_AVAILABLE and _word_tokenize:
             try:
-                tokens = word_tokenize(text)
+                tokens = _word_tokenize(text)
                 return [token for token in tokens if token.strip()]
             except Exception as e:
                 self.logger.warning(f"NLTK tokenization failed: {e}")

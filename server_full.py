@@ -81,6 +81,7 @@ class IndexRequest(BaseModel):
     index: str = Field(..., description="Index name")
     document: dict = Field(..., description="Document to index")
     doc_id: Optional[str] = Field(None, description="Optional document ID")
+    routing: Optional[str] = Field(None, description="Optional routing key for parent-child")
     
     class Config:
         arbitrary_types_allowed = True
@@ -289,7 +290,7 @@ async def search(
                         "field": "vector",
                         "query_vector": query_vector,
                         "k": query.limit,
-                        "num_candidates": query.limit * 2
+                        "num_candidates": max(query.limit * 10, 50)
                     },
                     "min_score": query.threshold
                 }
@@ -310,22 +311,117 @@ async def search(
                     
             except Exception as e:
                 logger.warning(f"Sanctions search failed: {e}")
+            
+            # Optional: script_score using variant vectors (best-effort; guarded)
+            try:
+                # Use companion variants index for kNN
+                variant_knn = {
+                    "knn": {
+                        "field": "vector",
+                        "query_vector": query_vector,
+                        "k": query.limit,
+                        "num_candidates": max(query.limit * 10, 50)
+                    }
+                }
+                variant_scores = es_client.search(index_name="sanctions_variants", query=variant_knn, size=query.limit)
+                for hit in variant_scores.get("hits", {}).get("hits", []):
+                    parent_id = hit.get("_source", {}).get("parent_id")
+                    if not parent_id:
+                        continue
+                    # Avoid duplicates by parent id
+                    if any(r["id"] == parent_id for r in results):
+                        continue
+                    # Fetch parent doc from sanctions
+                    try:
+                        parent = es_client.client.get(index="sanctions", id=parent_id)
+                        results.append({
+                            "id": parent_id,
+                            "score": hit.get("_score", 0.0),
+                            "source": parent.get("_source", {}),
+                            "index": "sanctions"
+                        })
+                    except Exception as ge:
+                        logger.info(f"Failed to fetch parent {parent_id}: {ge}")
+            except Exception as e:
+                logger.info(f"Variant vector kNN skipped: {e}")
+
+            # Parent-child index kNN (sanctions_pc), on children (variant docs) with routing
+            try:
+                pc_knn = {
+                    "knn": {
+                        "field": "vector",
+                        "query_vector": query_vector,
+                        "k": query.limit,
+                        "num_candidates": max(query.limit * 10, 50)
+                    },
+                    "query": {
+                        "term": {"doc_rel": "variant"}
+                    }
+                }
+                pc_scores = es_client.search(index_name="sanctions_pc", query=pc_knn, size=query.limit)
+                for hit in pc_scores.get("hits", {}).get("hits", []):
+                    parent_id = hit.get("_routing") or hit.get("fields", {}).get("_routing")
+                    # Fetch parent via routing
+                    if not parent_id:
+                        continue
+                    if any(r["id"] == parent_id for r in results):
+                        continue
+                    try:
+                        parent = es_client.client.get(index="sanctions_pc", id=parent_id, routing=parent_id)
+                        results.append({
+                            "id": parent_id,
+                            "score": hit.get("_score", 0.0),
+                            "source": parent.get("_source", {}),
+                            "index": "sanctions_pc"
+                        })
+                    except Exception as ge:
+                        logger.info(f"Failed to fetch PC parent {parent_id}: {ge}")
+            except Exception as e:
+                logger.info(f"Parent-child kNN skipped: {e}")
         
         # Fallback: text search if no vector or additional results needed
         if len(results) < query.limit:
             try:
+                # Combine multi_match across top-level fields with nested variants.text
+                should_clauses = [
+                    {"multi_match": {
+                        "query": normalized_query,
+                        "fields": ["name", "name_en", "name_ru", "entity_type", "source"],
+                        "fuzziness": "AUTO"
+                    }},
+                    {"nested": {
+                        "path": "variants",
+                        "query": {"match": {"variants.text": {"query": normalized_query, "fuzziness": "AUTO"}}},
+                        "score_mode": "max"
+                    }}
+                ]
+                # Multi-token boost (phrase query) for name fields
+                should_clauses.append({"match_phrase": {"name": {"query": normalized_query, "boost": 2.0}}})
+                should_clauses.append({"match_phrase": {"name_ru": {"query": normalized_query, "boost": 1.5}}})
+                should_clauses.append({"match_phrase": {"name_en": {"query": normalized_query, "boost": 1.5}}})
+                # Phrase boost on nested variants
+                should_clauses.append({
+                    "nested": {
+                        "path": "variants",
+                        "query": {"match_phrase": {"variants.text": {"query": normalized_query, "boost": 1.8}}},
+                        "score_mode": "max"
+                    }
+                })
                 text_search = {
                     "query": {
-                        "multi_match": {
-                            "query": normalized_query,
-                            "fields": ["*"],
-                            "fuzziness": "AUTO"
+                        "bool": {
+                            "should": should_clauses
                         }
                     }
                 }
+                # Dynamic min_score for short queries to cut FP
+                if len((normalized_query or '').strip()) <= 8:
+                    text_search["min_score"] = 2.0
+                elif len((normalized_query or '').strip()) <= 12:
+                    text_search["min_score"] = 1.0
                 
-                # Search in available indices
-                for index_name in ["sanctions", "payment_vectors", "test_index"]:
+                # Search in available indices, include variants companion
+                for index_name in ["sanctions", "payment_vectors", "test_index", "sanctions_variants"]:
                     if es_client.index_exists(index_name):
                         try:
                             text_results = es_client.search(
@@ -335,14 +431,29 @@ async def search(
                             )
                             
                             for hit in text_results.get("hits", {}).get("hits", []):
-                                # Avoid duplicates
-                                if not any(r["id"] == hit["_id"] for r in results):
-                                    results.append({
-                                        "id": hit["_id"],
-                                        "score": hit["_score"],
-                                        "source": hit["_source"],
-                                        "index": index_name
-                                    })
+                                if index_name == "sanctions_variants":
+                                    parent_id = hit.get("_source", {}).get("parent_id")
+                                    if not parent_id or any(r["id"] == parent_id for r in results):
+                                        continue
+                                    try:
+                                        parent = es_client.client.get(index="sanctions", id=parent_id)
+                                        results.append({
+                                            "id": parent_id,
+                                            "score": hit.get("_score", 0.0),
+                                            "source": parent.get("_source", {}),
+                                            "index": "sanctions"
+                                        })
+                                    except Exception as ge:
+                                        logger.info(f"Failed to fetch parent {parent_id}: {ge}")
+                                else:
+                                    # Avoid duplicates
+                                    if not any(r["id"] == hit["_id"] for r in results):
+                                        results.append({
+                                            "id": hit["_id"],
+                                            "score": hit["_score"],
+                                            "source": hit["_source"],
+                                            "index": index_name
+                                        })
                                     
                                 if len(results) >= query.limit:
                                     break
@@ -356,6 +467,42 @@ async def search(
             except Exception as e:
                 logger.warning(f"Text search failed: {e}")
         
+        # Combine duplicates and fuse scores (vector vs text)
+        fused = {}
+        def add_hit(h, method):
+            _id = h["id"]
+            e = fused.setdefault(_id, {"id": _id, "source": h.get("source", {}), "index": h.get("index", "sanctions"), "vector_score": 0.0, "text_score": 0.0})
+            sc = h.get("score", 0.0)
+            if method in ("vector", "variant_vector"):
+                e["vector_score"] = max(e["vector_score"], sc)
+            else:
+                e["text_score"] = max(e["text_score"], sc)
+
+        # Divide results into vector/text heuristically by index and availability of query_vector
+        for r in results:
+            if query_vector and r.get("index") in ("sanctions", "sanctions_variants") and r.get("score"):
+                add_hit(r, "vector" if r.get("index") == "sanctions" else "variant_vector")
+            else:
+                add_hit(r, "text")
+
+        fused_list = []
+        for _id, e in fused.items():
+            vs = e["vector_score"]; ts = e["text_score"]
+            # Weighted fusion; if both present, combine, else use max
+            if vs > 0 and ts > 0:
+                final = 0.7 * vs + 0.3 * ts
+            else:
+                final = max(vs, ts)
+            fused_list.append({
+                "id": _id,
+                "score": final,
+                "source": e["source"],
+                "index": e["index"]
+            })
+
+        fused_list.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+        fused_list = fused_list[:query.limit]
+
         processing_time = (datetime.now() - start_time).total_seconds()
         
         return {
@@ -364,8 +511,8 @@ async def search(
             "normalized_query": normalized_query,
             "language": language,
             "embeddings_length": len(query_vector) if query_vector else 0,
-            "results": results,
-            "total": len(results),
+            "results": fused_list,
+            "total": len(fused_list),
             "processing_time": processing_time,
             "server_info": {
                 "elasticsearch_available": es_client is not None,
@@ -390,7 +537,8 @@ async def index_document(request: IndexRequest, services: dict = Depends(get_ser
         response = es_client.index_document(
             index_name=request.index,
             document=document,
-            doc_id=request.doc_id
+            doc_id=request.doc_id,
+            routing=request.routing
         )
         
         return {
