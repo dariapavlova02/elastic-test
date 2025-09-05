@@ -365,20 +365,28 @@ class AIProcessor:
                 for vp in variants_payload:
                     vp['vector'] = []
 
+            # Detect dominant language for the entity (best-effort)
+            try:
+                lang_det = self.language_detection.detect_language(entity_data.get('name') or combined_text)
+                lang_guess = lang_det.get('language', 'unknown')
+            except Exception:
+                lang_guess = 'unknown'
+
             # Add processing result to entity data
             entity_data['ai_processing'] = {
                 'normalized_texts': variant_texts[:1],
-                'total_variants': len(variants_payload)
+                'total_variants': len(variants_payload),
+                'language': lang_guess
             }
             entity_data['variants'] = variants_payload
             entity_data['vector'] = primary_vector
             
             return {
-                "success": result['success'],
+                "success": True,
                 "entity_data": entity_data,
                 "embeddings": entity_data.get('vector', []),
-                "normalized_text": entity_data.get('ai_processing', {}).get('normalized_texts', [''])[0],
-                "language": result.get('language', 'unknown')
+                "normalized_text": (variant_texts[0] if variant_texts else (entity_data.get('name') or combined_text)),
+                "language": lang_guess
             }
             
         except Exception as e:
