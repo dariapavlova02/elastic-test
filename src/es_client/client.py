@@ -109,10 +109,13 @@ class ElasticsearchClient:
             Search results
         """
         try:
+            # Ensure size is set in body for compatibility across ES client versions
+            payload = dict(query or {})
+            if isinstance(payload, dict) and 'size' not in payload:
+                payload['size'] = size
             response = self.client.search(
                 index=index_name,
-                body=query,
-                size=size
+                body=payload
             )
             logger.debug(f"Search completed in {index_name}: {response['hits']['total']['value']} hits")
             return response
@@ -139,11 +142,11 @@ class ElasticsearchClient:
                 "field": "vector",
                 "query_vector": vector,
                 "k": size,
-                "num_candidates": size * 2
+                "num_candidates": max(size * 10, 50)
             },
-            "min_score": similarity_threshold
+            "min_score": similarity_threshold,
+            "size": size
         }
-        
         return self.search(index_name, query, size)
     
     def delete_index(self, index_name: str) -> Dict[str, Any]:

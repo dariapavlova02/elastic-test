@@ -481,7 +481,40 @@ async def search(
                         
             except Exception as e:
                 logger.warning(f"Text search failed: {e}")
-        
+
+        # FINAL TEXT FALLBACK: if still no results, try reduced query (strip boilerplate)
+        if len(results) == 0:
+            try:
+                import re as _re
+                rq = normalized_query or query.query
+                # Prefer quoted phrase if exists
+                m = _re.search(r'"([^"]{2,})"', rq)
+                if m:
+                    reduced = m.group(1)
+                else:
+                    # Remove common payment/legal boilerplate (ru/uk/en)
+                    boiler = [
+                        'платеж', 'оплата', 'перевод', 'перечисление', 'зачисление', 'списание', 'от', 'для', 'в пользу', 'на имя',
+                        'платіж', 'переказ', 'перерахування', 'зарахування', 'списання', 'від', 'на користь',
+                        'payment', 'transfer', 'remittance', 'credit', 'debit', 'from', 'for', 'to', 'on behalf of',
+                        'ооо', 'зао', 'оао', 'пао', 'ао', 'ип', 'чп', 'тов', 'пп', 'прат', 'пат', 'ат', 'фоп', 'llc', 'ltd', 'inc', 'corp', 'co', 'company', 'plc', 'llp'
+                    ]
+                    tokens = [t for t in _re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґ\-\'\u02BC\u2019]+", rq) if t]
+                    reduced = ' '.join([t for t in tokens if t.lower() not in boiler])
+                if len((reduced or '').strip()) >= 2:
+                    fallback_search = {"query": {"multi_match": {"query": reduced, "fields": ["*"], "fuzziness": "AUTO"}}}
+                    fb = es_client.search(index_name="sanctions", query=fallback_search, size=query.limit)
+                    for hit in fb.get("hits", {}).get("hits", []):
+                        if not any(r["id"] == hit["_id"] for r in results):
+                            results.append({
+                                "id": hit["_id"],
+                                "score": hit["_score"],
+                                "source": hit["_source"],
+                                "index": "sanctions"
+                            })
+            except Exception as e:
+                logger.info(f"Final fallback text search skipped: {e}")
+
         # Combine duplicates and fuse scores (vector vs text)
         fused = {}
         def add_hit(h, method):
@@ -548,7 +581,31 @@ async def index_document(request: IndexRequest, services: dict = Depends(get_ser
         
         # Convert document to dict if it's not already
         document = dict(request.document) if hasattr(request.document, '__dict__') else request.document
-        
+
+        # Ensure vector/variants if missing and AI is available
+        try:
+            if services.get("ai_processor") and (not document.get('vector')):
+                # Build minimal entity and process via AI
+                entity = {
+                    'id': document.get('id') or request.doc_id or document.get('_id'),
+                    'name': document.get('name') or document.get('title') or '',
+                    'name_en': document.get('name_en', ''),
+                    'name_ru': document.get('name_ru', ''),
+                    'entity_type': document.get('entity_type', ''),
+                    'description': document.get('description', ''),
+                    'address': document.get('address', ''),
+                    'source': document.get('source', 'api_index')
+                }
+                ai_res = await services["ai_processor"].process_sanctions_entity(entity)
+                if ai_res.get('success'):
+                    ed = ai_res.get('entity_data', {})
+                    # Attach vector and variants
+                    document['vector'] = ed.get('vector', [])
+                    if ed.get('variants'):
+                        document['variants'] = ed['variants']
+        except Exception as e:
+            logger.info(f"Index-time AI enrichment skipped: {e}")
+
         response = es_client.index_document(
             index_name=request.index,
             document=document,
