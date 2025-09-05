@@ -64,7 +64,7 @@ class APISanctionsLoader:
             # Simplify the document for Elasticsearch (parent doc only)
             simplified = {
                 'id': processed.get('id'),
-                'name': (processed.get('name') or '').strip() or None,
+                'name': (processed.get('name') or '').strip(),
                 'name_en': (processed.get('name_en') or '').strip() or None,
                 'name_ru': (processed.get('name_ru') or '').strip() or None,
                 'entity_type': processed.get('entity_type') or None,
@@ -97,10 +97,6 @@ class APISanctionsLoader:
                 except Exception:
                     logger.warning("Vector contained non-numeric values; dropping vector for this doc")
                     vec = []
-                # Optional: ensure expected dimension (384)
-                if len(vec) not in (0, 384):
-                    logger.warning(f"Vector has unexpected length {len(vec)}; dropping vector for this doc")
-                    vec = []
                 simplified['vector'] = vec
             elif vec is None:
                 simplified['vector'] = None
@@ -115,7 +111,6 @@ class APISanctionsLoader:
                     "index": "sanctions",
                     "document": simplified
                 },
-                timeout=30
             )
             
             if response.status_code == 200:
@@ -137,7 +132,6 @@ class APISanctionsLoader:
                         vresp = requests.post(
                             f"{self.api_url}/index",
                             json={"index": "sanctions_variants", "document": vdoc},
-                            timeout=30
                         )
                         if vresp.status_code != 200:
                             ok_variants = False
@@ -165,7 +159,6 @@ class APISanctionsLoader:
                             "doc_id": parent_id,
                             "routing": parent_id
                         },
-                        timeout=30
                     )
                     if pc_parent_resp.status_code != 200:
                         logger.warning(f"PC parent index failed: {pc_parent_resp.status_code} {pc_parent_resp.text}")
@@ -185,7 +178,6 @@ class APISanctionsLoader:
                                 "document": vdoc,
                                 "routing": parent_id
                             },
-                            timeout=30
                         )
                         if pc_child_resp.status_code != 200:
                             logger.warning(f"PC child index failed: {pc_child_resp.status_code} {pc_child_resp.text}")
@@ -220,8 +212,6 @@ class APISanctionsLoader:
                 if await self.process_and_send_entity(entity):
                     success_count += 1
                 
-                # Small delay to avoid overwhelming the server
-                await asyncio.sleep(0.1)
             
             logger.info(f"✅ Successfully loaded {success_count}/{len(entities)} entities")
             return success_count > 0
