@@ -36,6 +36,7 @@ class PatternService:
                 'full_name': r'\b[A-Z][a-z]+ [A-Z][a-z]+\b',
                 'initials_surname': r'\b[A-Z]\. [A-Z]\. [A-Z][a-z]+\b',
                 'surname_initials': r'\b[A-Z][a-z]+ [A-Z]\. [A-Z]\.\b',
+                'single_initial_surname': r'\b[A-Z]\.\s*[A-Z][a-z]+\b',
                 'surname_only': r'\b[A-Z][a-z]{2,}\b',
                 'name_only': r'\b[A-Z][a-z]{2,}\b'
             },
@@ -43,6 +44,7 @@ class PatternService:
                 'full_name': r'\b[А-ЯІЇЄ][а-яіїє]+ [А-ЯІЇЄ][а-яіїє]+\b',
                 'initials_surname': r'\b[А-ЯІЇЄ]\. [А-ЯІЇЄ]\. [А-ЯІЇЄ][а-яіїє]+\b',
                 'surname_initials': r'\b[А-ЯІЇЄ][а-яіїє]+ [А-ЯІЇЄ]\. [А-ЯІЇЄ]\.\b',
+                'single_initial_surname': r'\b[А-ЯІЇЄ]\.\s*[А-ЯІЇЄ][а-яіїє]+\b',
                 'surname_only': r'\b[А-ЯІЇЄ][а-яіїє]{2,}\b',
                 'name_only': r'\b[А-ЯІЇЄ][а-яіїє]{2,}\b'
             },
@@ -50,6 +52,7 @@ class PatternService:
                 'full_name': r'\b[А-ЯІЇЄ][а-яіїє]+ [А-ЯІЇЄ][а-яіїє]+\b',
                 'initials_surname': r'\b[А-ЯІЇЄ]\. [А-ЯІЇЄ]\. [А-ЯІЇЄ][а-яіїє]+\b',
                 'surname_initials': r'\b[А-ЯІЇЄ][а-яіїє]+ [А-ЯІЇЄ]\. [А-ЯІЇЄ]\.\b',
+                'single_initial_surname': r'\b[А-ЯІЇЄ]\.\s*[А-ЯІЇЄ][а-яіїє]+\b',
                 'surname_only': r'\b[А-ЯІЇЄ][а-яіїє]{2,}\b',
                 'name_only': r'\b[А-ЯІЇЄ][а-яіїє]{2,}\b'
             },
@@ -70,23 +73,52 @@ class PatternService:
             }
         }
         
-        # Dictionaries of known names and surnames for each language
+        # Prefer external dictionaries; fallback to minimal in-file sets
+        try:
+            from ..data.dicts.russian_names import NAMES as EXT_RU_NAMES
+        except Exception:
+            EXT_RU_NAMES = {}
+        try:
+            from ..data.dicts.ukrainian_names import NAMES as EXT_UK_NAMES
+        except Exception:
+            EXT_UK_NAMES = {}
+        try:
+            from ..data.dicts.english_names import NAMES as EXT_EN_NAMES
+        except Exception:
+            EXT_EN_NAMES = {}
+
+        ru_name_set = set(EXT_RU_NAMES.keys()) or {'Иван', 'Петр', 'Сергей', 'Владимир', 'Анна', 'Мария'}
+        uk_name_set = set(EXT_UK_NAMES.keys()) or {'Іван', 'Петро', 'Сергій', 'Володимир', 'Анна', 'Марія'}
+        en_name_set = set(EXT_EN_NAMES.keys()) or {'John', 'Peter', 'Michael', 'Anna', 'Maria'}
+
+        # External packs usually don't contain surnames; keep small heuristic fallback
+        ru_surnames = {'Иванов', 'Петров', 'Сидоров', 'Порошенко'}
+        uk_surnames = {'Іванов', 'Петренко', 'Сидоренко', 'Порошенко'}
+        fr_names = {'Jean', 'Pierre', 'Marie', 'Sophie', 'Baptiste', 'Antoine', 'Claude'}
+        fr_surnames = {'Martin', 'Bernard', 'Dubois', 'Thomas', 'Robert', 'Richard', 'Petit'}
+        es_names = {'María', 'José', 'Carlos', 'Ana', 'Luis', 'Carmen', 'Miguel'}
+        es_surnames = {'García', 'Rodríguez', 'González', 'Fernández', 'López', 'Martínez', 'Sánchez'}
+
         self.name_dictionaries = {
             'ru': {
-                'names': {'Иван', 'Петр', 'Сергей', 'Володимир', 'Дарья', 'Анна', 'Мария', 'Олексій'},
-                'surnames': {'Иванов', 'Петров', 'Сидоров', 'Порошенко', 'Акопджанів', 'Ковриков', 'Гаркушев'}
+                'names': ru_name_set,
+                'surnames': ru_surnames
             },
             'uk': {
-                'names': {'Іван', 'Петро', 'Сергій', 'Володимир', 'Дарʼя', 'Анна', 'Марія', 'Олексій'},
-                'surnames': {'Іванов', 'Петренко', 'Сидоренко', 'Порошенко', 'Акопджанів', 'Ковриков', 'Гаркушев'}
+                'names': uk_name_set,
+                'surnames': uk_surnames
+            },
+            'en': {
+                'names': en_name_set,
+                'surnames': set()  # keep empty unless provided externally
             },
             'fr': {
-                'names': {'Jean', 'Pierre', 'Marie', 'Sophie', 'Baptiste', 'Antoine', 'Claude'},
-                'surnames': {'Martin', 'Bernard', 'Dubois', 'Thomas', 'Robert', 'Richard', 'Petit'}
+                'names': fr_names,
+                'surnames': fr_surnames
             },
             'es': {
-                'names': {'María', 'José', 'Carlos', 'Ana', 'Luis', 'Carmen', 'Miguel'},
-                'surnames': {'García', 'Rodríguez', 'González', 'Fernández', 'López', 'Martínez', 'Sánchez'}
+                'names': es_names,
+                'surnames': es_surnames
             }
         }
         
@@ -380,7 +412,7 @@ class PatternService:
         sw = set(self.stop_words.get(language, []))
         if not sw:
             return text
-        tokens = re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґ\'-]+", text)
+        tokens = re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґ\'\u02BC\u2019\-]+", text)
         if not tokens:
             return text
         # Drop leading stop-words
@@ -400,7 +432,7 @@ class PatternService:
             return patterns
         
         # Improved regex for handling apostrophes and hyphens in names
-        words = re.findall(r'\b[A-ZА-ЯІЇЄ][a-zA-Zа-яіїє\'-]+\b', text)
+        words = re.findall(r"\b[A-ZА-ЯІЇЄ][a-zA-Zа-яіїє\'\u02BC\u2019\-]+\b", text)
         
         # Check names
         for word in words:

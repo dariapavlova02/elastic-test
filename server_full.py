@@ -269,12 +269,24 @@ async def search(
                 
                 logger.info(f"AI result: {ai_result}")
                 if ai_result["success"]:
-                    query_vector = ai_result["embeddings"]
+                    # Flatten embeddings if shape is [1, D] or already [D]
+                    emb = ai_result.get("embeddings", [])
+                    if isinstance(emb, list):
+                        if len(emb) == 1 and isinstance(emb[0], list):
+                            query_vector = emb[0]
+                        elif emb and isinstance(emb[0], (int, float)):
+                            query_vector = emb
+                        else:
+                            logger.warning(f"Embeddings shape not usable for kNN: {type(emb)} length={len(emb)}")
+                            query_vector = None
+                    else:
+                        query_vector = None
                     normalized_query = ai_result.get("normalized_text", query.query)
                     language = ai_result.get("language", "unknown")
                     
                     logger.info(f"Query normalized: '{normalized_query}' (language: {language})")
-                    logger.info(f"Generated vector of length: {len(query_vector)}")
+                    if query_vector:
+                        logger.info(f"Generated vector of length: {len(query_vector)}")
                 else:
                     logger.warning(f"AI processing failed: {ai_result.get('error', 'Unknown error')}")
                     logger.warning(f"Full AI result: {ai_result}")

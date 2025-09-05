@@ -264,7 +264,7 @@ class OrchestratorService:
             return None
         # Keep only letters, apostrophes and hyphens/spaces
         import re
-        parts = re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґ\'-]+", name_text)
+        parts = re.findall(r"[A-Za-zА-Яа-яІіЇїЄєҐґ\'\u02BC\u2019\-]+", name_text)
         if not parts:
             return None
         # Choose best guess for first/last order
@@ -372,6 +372,14 @@ class OrchestratorService:
             return best.pattern
         except Exception:
             return None
+
+    def _extract_initial_surname(self, text: str, language: str) -> Optional[str]:
+        """Extract a single-initial + surname pattern (e.g., 'П. Порошенко' or 'P. Poroshenko')."""
+        import re
+        m = re.search(r"\b([A-Za-zА-ЯІЇЄ])\.\s*([A-Za-zА-ЯІЇЄ][a-zA-Zа-яіїєґ\-]+)\b", text)
+        if m:
+            return f"{m.group(1)}. {m.group(2)}"
+        return None
 
     def _strip_stop_words(self, text: str, language: str) -> str:
         """Remove known stop words around the possible name region."""
@@ -619,6 +627,11 @@ class OrchestratorService:
                 stripped = self._strip_stop_words(text_for_processing, language)
                 if stripped and stripped != text:
                     candidate = self._extract_payment_context_name(stripped, language)
+            # If still not found, try single initial + surname fallbacks (non-payment context)
+            if not candidate:
+                candidate = self._extract_initial_surname(text_for_processing, language)
+                if not candidate and stripped and stripped != text_for_processing:
+                    candidate = self._extract_initial_surname(stripped, language)
             if candidate:
                 try:
                     # Try canonicalization with detected language

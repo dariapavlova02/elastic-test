@@ -9,9 +9,9 @@ NAMES = {
     # Male Arabic names
     'Алі': {
         'gender': 'masc',
-        'variants': ['Ali', 'Aly'],
-        'diminutives': ['Алі', 'Ali'],
-        'transliterations': ['Ali', 'Aly'],
+        'variants': ['Ali', 'Aly', 'Али', 'Aliy', 'Alee', 'Aliyy'],
+        'diminutives': ['Алі', 'Ali', 'Aliko', 'Alish'],
+        'transliterations': ['Ali', 'Aly', 'Aliy', 'Alee', 'Aliyy', 'Alii'],
         'declensions': ['Алі', 'Алі', 'Алі', 'Алі', 'Алі']
     },
     'Ахмед': {
@@ -220,10 +220,18 @@ NAMES = {
     },
     'Ясмін': {
         'gender': 'femn',
-        'variants': ['Yasmin', 'Jasmine'],
-        'diminutives': ['Ясмін', 'Yasmin'],
-        'transliterations': ['Yasmin', 'Jasmine'],
+        'variants': ['Yasmin', 'Jasmine', 'Jasmin', 'Yasmeen'],
+        'diminutives': ['Ясмін', 'Yasmin', 'Jas', 'Yasi'],
+        'transliterations': ['Yasmin', 'Jasmine', 'Jasmin', 'Yasmeen'],
         'declensions': ['Ясмін', 'Ясмін', 'Ясмін', 'Ясмін', 'Ясмін']
+    },
+    # Additional Arabic names
+    'Омар': {
+        'gender': 'masc',
+        'variants': ['Omar', 'Umar', 'Omer'],
+        'diminutives': ['Омар', 'Omar', 'Omy'],
+        'transliterations': ['Omar', 'Umar', 'Omer', 'Omaar'],
+        'declensions': ['Омар', 'Омара', 'Омару', 'Омара', 'Омаром', 'Омаре']
     },
     
     # Additional Egyptian names

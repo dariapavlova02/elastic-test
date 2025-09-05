@@ -9,9 +9,9 @@ NAMES = {
     # Chinese names
     'Вей': {
         'gender': 'masc',
-        'variants': ['Wei', 'Way'],
-        'diminutives': ['Вей', 'Wei'],
-        'transliterations': ['Wei', 'Way'],
+        'variants': ['Wei', 'Way', 'Wey', 'Weii'],
+        'diminutives': ['Вей', 'Wei', 'Weii'],
+        'transliterations': ['Wei', 'Way', 'Wey', 'Weii'],
         'declensions': ['Вей', 'Вей', 'Вей', 'Вей', 'Вей']
     },
     'Лі': {
@@ -374,6 +374,130 @@ NAMES = {
         'diminutives': ['Ісмаїл', 'Ismail'],
         'transliterations': ['Ismail', 'Ismael'],
         'declensions': ['Ісмаїла', 'Ісмаїлу', 'Ісмаїла', 'Ісмаїлом', 'Ісмаїлі']
+    },
+    # Additional Chinese names
+    'Цзін': {
+        'gender': 'masc',
+        'variants': ['Jing', 'Jin', 'Qing'],
+        'diminutives': ['Цзін', 'Jing', 'Jin'],
+        'transliterations': ['Jing', 'Jin', 'Qing', 'Ching'],
+        'declensions': ['Цзін', 'Цзіна', 'Цзіну', 'Цзіна', 'Цзіном', 'Цзіні']
+    },
+    'Хуан': {
+        'gender': 'masc',
+        'variants': ['Huang', 'Hwang', 'Hoang'],
+        'diminutives': ['Хуан', 'Huang', 'Hwang'],
+        'transliterations': ['Huang', 'Hwang', 'Hoang', 'Huan'],
+        'declensions': ['Хуан', 'Хуана', 'Хуану', 'Хуана', 'Хуаном', 'Хуані']
+    },
+    'Сяо': {
+        'gender': 'fem',
+        'variants': ['Xiao', 'Hsiao', 'Shiao'],
+        'diminutives': ['Сяо', 'Xiao', 'Xia'],
+        'transliterations': ['Xiao', 'Hsiao', 'Shiao', 'Syao'],
+        'declensions': ['Сяо', 'Сяо', 'Сяо', 'Сяо', 'Сяо', 'Сяо']
+    },
+    'Мін': {
+        'gender': 'masc',
+        'variants': ['Min', 'Ming', 'Myn'],
+        'diminutives': ['Мін', 'Min', 'Ming'],
+        'transliterations': ['Min', 'Ming', 'Myn', 'Minh'],
+        'declensions': ['Мін', 'Міна', 'Міну', 'Міна', 'Міном', 'Міні']
+    },
+    # Japanese names
+    'Хірото': {
+        'gender': 'masc',
+        'variants': ['Hiroto', 'Hiruto'],
+        'diminutives': ['Хірото', 'Hiroto', 'Hiro'],
+        'transliterations': ['Hiroto', 'Hiruto', 'Hiroto'],
+        'declensions': ['Хірото', 'Хірото', 'Хірото', 'Хірото', 'Хірото', 'Хірото']
+    },
+    'Юкі': {
+        'gender': 'fem',
+        'variants': ['Yuki', 'Yuuki', 'Yukii'],
+        'diminutives': ['Юкі', 'Yuki', 'Yu'],
+        'transliterations': ['Yuki', 'Yuuki', 'Yukii', 'Youki'],
+        'declensions': ['Юкі', 'Юкі', 'Юкі', 'Юкі', 'Юкі', 'Юкі']
+    },
+    'Кензо': {
+        'gender': 'masc',
+        'variants': ['Kenzo', 'Kenzou', 'Kenso'],
+        'diminutives': ['Кензо', 'Kenzo', 'Ken'],
+        'transliterations': ['Kenzo', 'Kenzou', 'Kenso', 'Kenzoo'],
+        'declensions': ['Кензо', 'Кензо', 'Кензо', 'Кензо', 'Кензо', 'Кензо']
+    },
+    'Сакура': {
+        'gender': 'fem',
+        'variants': ['Sakura', 'Sakuraa', 'Sakurah'],
+        'diminutives': ['Сакура', 'Sakura', 'Saki'],
+        'transliterations': ['Sakura', 'Sakuraa', 'Sakurah', 'Sakurra'],
+        'declensions': ['Сакура', 'Сакури', 'Сакурі', 'Сакуру', 'Сакурою', 'Сакурі']
+    },
+    # Korean names
+    'Мін-хо': {
+        'gender': 'masc',
+        'variants': ['Min-ho', 'Minho', 'Min Ho'],
+        'diminutives': ['Мін-хо', 'Minho', 'Min'],
+        'transliterations': ['Min-ho', 'Minho', 'Min Ho', 'Mynho'],
+        'declensions': ['Мін-хо', 'Мін-хо', 'Мін-хо', 'Мін-хо', 'Мін-хо', 'Мін-хо']
+    },
+    'Сон-мі': {
+        'gender': 'fem',
+        'variants': ['Son-mi', 'Sonmi', 'Sun-mi'],
+        'diminutives': ['Сон-мі', 'Sonmi', 'Son'],
+        'transliterations': ['Son-mi', 'Sonmi', 'Sun-mi', 'Sonmee'],
+        'declensions': ['Сон-мі', 'Сон-мі', 'Сон-мі', 'Сон-мі', 'Сон-мі', 'Сон-мі']
+    },
+    'Чон-хо': {
+        'gender': 'masc',
+        'variants': ['Jong-ho', 'Jongho', 'Jung-ho'],
+        'diminutives': ['Чон-хо', 'Jongho', 'Jong'],
+        'transliterations': ['Jong-ho', 'Jongho', 'Jung-ho', 'Chongho'],
+        'declensions': ['Чон-хо', 'Чон-хо', 'Чон-хо', 'Чон-хо', 'Чон-хо', 'Чон-хо']
+    },
+    # Vietnamese names
+    'Нгуен': {
+        'gender': 'masc',
+        'variants': ['Nguyen', 'Nguen', 'Nguyên'],
+        'diminutives': ['Нгуен', 'Nguyen', 'Ngu'],
+        'transliterations': ['Nguyen', 'Nguen', 'Nguyên', 'Nguyenh'],
+        'declensions': ['Нгуен', 'Нгуена', 'Нгуену', 'Нгуена', 'Нгуеном', 'Нгуені']
+    },
+    'Тхі': {
+        'gender': 'fem',
+        'variants': ['Thi', 'Thy', 'Thii'],
+        'diminutives': ['Тхі', 'Thi', 'Th'],
+        'transliterations': ['Thi', 'Thy', 'Thii', 'Thee'],
+        'declensions': ['Тхі', 'Тхі', 'Тхі', 'Тхі', 'Тхі', 'Тхі']
+    },
+    'Хоанг': {
+        'gender': 'masc',
+        'variants': ['Hoang', 'Huang', 'Hoaang'],
+        'diminutives': ['Хоанг', 'Hoang', 'Hoa'],
+        'transliterations': ['Hoang', 'Huang', 'Hoaang', 'Hoangh'],
+        'declensions': ['Хоанг', 'Хоанга', 'Хоангу', 'Хоанга', 'Хоангом', 'Хоангі']
+    },
+    # Thai names
+    'Сомчай': {
+        'gender': 'masc',
+        'variants': ['Somchai', 'Somchay', 'Somchaai'],
+        'diminutives': ['Сомчай', 'Somchai', 'Som'],
+        'transliterations': ['Somchai', 'Somchay', 'Somchaai', 'Somchaii'],
+        'declensions': ['Сомчай', 'Сомчая', 'Сомчаю', 'Сомчая', 'Сомчаєм', 'Сомчаї']
+    },
+    'Малі': {
+        'gender': 'fem',
+        'variants': ['Mali', 'Malee', 'Malii'],
+        'diminutives': ['Малі', 'Mali', 'Mal'],
+        'transliterations': ['Mali', 'Malee', 'Malii', 'Maaly'],
+        'declensions': ['Малі', 'Малі', 'Малі', 'Малі', 'Малі', 'Малі']
+    },
+    'Ніран': {
+        'gender': 'masc',
+        'variants': ['Niran', 'Nirun', 'Niraan'],
+        'diminutives': ['Ніран', 'Niran', 'Nir'],
+        'transliterations': ['Niran', 'Nirun', 'Niraan', 'Nyran'],
+        'declensions': ['Ніран', 'Нірана', 'Нірану', 'Нірана', 'Ніраном', 'Нірані']
     }
 }
 

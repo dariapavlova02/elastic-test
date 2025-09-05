@@ -189,8 +189,8 @@ class NormalizationService:
         # Hyphens for compound names (Jean-Pierre)
         # Apostrophes for names (O'Connor, D'Artagnan)
         if preserve_names:
-            # Preserve dots, hyphens, apostrophes
-            text = re.sub(r'[^\w\s\.\-\']', ' ', text)
+            # Preserve dots, hyphens, apostrophes (ASCII ', U+02BC, U+2019)
+            text = re.sub(r"[^\w\s\.\-\'\u02BC\u2019]", ' ', text)
         else:
             # Remove all punctuation
             text = re.sub(r'[^\w\s]', ' ', text)
