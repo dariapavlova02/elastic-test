@@ -419,6 +419,14 @@ async def search(
                         "score_mode": "max"
                     }
                 })
+                # Catch-all across all fields to avoid mapping mismatches
+                should_clauses.append({
+                    "multi_match": {
+                        "query": normalized_query,
+                        "fields": ["*"],
+                        "fuzziness": "AUTO"
+                    }
+                })
                 text_search = {
                     "query": {
                         "bool": {
@@ -427,10 +435,11 @@ async def search(
                     }
                 }
                 # Dynamic min_score for short queries to cut FP
+                # Relaxed thresholds to avoid false zero results on mixed mappings
                 if len((normalized_query or '').strip()) <= 8:
-                    text_search["min_score"] = 2.0
-                elif len((normalized_query or '').strip()) <= 12:
                     text_search["min_score"] = 1.0
+                elif len((normalized_query or '').strip()) <= 12:
+                    text_search["min_score"] = 0.5
                 
                 # Search in available indices, include variants companion
                 for index_name in ["sanctions", "payment_vectors", "test_index", "sanctions_variants"]:
